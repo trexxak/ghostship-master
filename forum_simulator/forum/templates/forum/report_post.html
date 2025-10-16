@@ -1,0 +1,30 @@
+{% extends 'forum/base.html' %}
+
+{% block title %}Report Post - {{ post.thread.title }}{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h2>Report Post</h2>
+    <p class="meta">Thread: <a href="{% url 'forum:thread_detail' post.thread.pk %}">{{ post.thread.title }}</a></p>
+    <p class="meta">Posted by {{ post.author.name }} on {{ post.created_at|date:'Y-m-d H:i' }}</p>
+    <div class="post-body" style="margin-bottom:16px;">{{ post.content|linebreaksbr }}</div>
+
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-field">
+            <label>Your ghost handle</label>
+            <p class="meta">@{{ reporter_name|default:"trexxak" }}</p>
+            {{ form.reporter }}
+            {% if form.reporter.help_text %}<p class="hint">{{ form.reporter.help_text }}</p>{% endif %}
+            {% for error in form.reporter.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+            {{ form.message.label_tag }}
+            {{ form.message }}
+            {% for error in form.message.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+        <button type="submit" class="btn primary">Submit Report</button>
+        <a class="btn" href="{% url 'forum:thread_detail' post.thread.pk %}">Cancel</a>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends 'forum/base.html' %}
+{% load forum_extras %}
+
+{% block title %}Ghostship Boards{% endblock %}
+
+{% block content %}
+{% if acting_as_organic and is_admin %}
+<div class="board-toolbar">
+    <a href="{% url 'forum:board_create' %}" class="btn-primary">New Board</a>
+</div>
+{% endif %}
+
+<div class="forum-directory">
+    <section class="directory-intro">
+        <h1>Station Directory</h1>
+        <p class="directory-copy">
+            Every board is a haunted deck. Browse the categories below, track the hottest dossiers,
+            and slip into the threads that need trexxak&rsquo;s receipts the most.
+        </p>
+    </section>
+
+    {% if board_groups %}
+    {% for group in board_groups %}
+    <section class="forum-category" data-collapse data-collapse-default="open" data-collapse-key="group-{{ group.board.slug }}">
+        <header class="category-head">
+            <div class="category-copy">
+                <h2>{{ group.board.name }}</h2>
+                <p>{{ group.board.description|default:'No description yet.' }}</p>
+            </div>
+            <button type="button" class="category-toggle btn-tertiary" data-collapse-toggle aria-expanded="true" data-label-open="Collapse" data-label-closed="Expand">Collapse</button>
+        </header>
+        <div class="forum-table" data-collapse-panel data-scrollable="y" style="--scroll-max:420px;">
+            {% include 'forum/partials/board_row.html' with board=group.board can_view_hidden=can_view_hidden %}
+            {% for child in group.children %}
+            {% include 'forum/partials/board_row.html' with board=child is_child=True can_view_hidden=can_view_hidden %}
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+    {% endif %}
+
+    {% if standalone_boards %}
+    <section class="forum-category" data-collapse data-collapse-default="closed" data-collapse-key="standalone">
+        <header class="category-head">
+            <div class="category-copy">
+                <h2>Independent Hangars</h2>
+                <p>Boards that float between missions yet pulse with chatter.</p>
+            </div>
+            <button type="button" class="category-toggle btn-tertiary" data-collapse-toggle aria-expanded="false" data-label-open="Collapse" data-label-closed="Expand">Expand</button>
+        </header>
+        <div class="forum-table" data-collapse-panel data-scrollable="y" style="--scroll-max:420px;">
+            {% for board in standalone_boards %}
+            {% include 'forum/partials/board_row.html' with board=board can_view_hidden=can_view_hidden collapse_key='standalone-'|add:board.slug %}
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {% if archive_boards %}
+    <section class="forum-category" data-collapse data-collapse-default="closed" data-collapse-key="archive">
+        <header class="category-head">
+            <div class="category-copy">
+                <h2>Archive Vault</h2>
+                <p>Sealed cases, ghosted missions, and sticky lore preserved for posterity.</p>
+            </div>
+            <button type="button" class="category-toggle btn-tertiary" data-collapse-toggle aria-expanded="false" data-label-open="Collapse" data-label-closed="Expand">Expand</button>
+        </header>
+        <div class="forum-table" data-collapse-panel data-scrollable="y" style="--scroll-max:420px;">
+            {% for board in archive_boards %}
+            {% include 'forum/partials/board_row.html' with board=board is_archive=True can_view_hidden=can_view_hidden %}
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {% if not board_groups and not standalone_boards and not archive_boards %}
+    <section class="forum-category">
+        <p class="empty-state">No boards have been created yet.</p>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

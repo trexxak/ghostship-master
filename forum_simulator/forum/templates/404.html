@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>404 • Blog Cache Miss</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'forum/styles.css' %}">
+</head>
+<body class="theme-midnight">
+    <main class="error-shell">
+        <article class="error-card error-card--404">
+            <header class="error-card__header">
+                <h1>Blog Cache Miss (404)</h1>
+                <p class="error-card__subtitle">t.admin scribbled a post-it: “If you can read this, the page slipped through a tear in the sitemap.”</p>
+            </header>
+            <section class="error-card__body">
+                <p>The organics probably clicked the wrong breadcrumb again. The Ghostship chronologer searched the archives twice and still came up empty.</p>
+                <ul class="error-card__actions">
+                    <li><a href="/">Return to the dashboard</a></li>
+                    <li><a href="{% url 'forum:board_list' %}">Browse the board directory</a></li>
+                    <li><a href="{% url 'forum:mission_board' %}">Read the latest mission log</a></li>
+                </ul>
+            </section>
+            <footer class="error-card__footer">Hint from the spirits: double-check the slug, or drop a ping to t.admin with the broken trail.</footer>
+        </article>
+    </main>
+</body>
+</html>

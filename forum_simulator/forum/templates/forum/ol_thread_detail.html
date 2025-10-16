@@ -1,0 +1,257 @@
+{% extends 'forum/base.html' %}
+{% load forum_extras %}
+
+{% block title %}{{ thread.title }} • Thread{% endblock %}
+
+{% block content %}
+<div class="thread-view">
+    <nav class="breadcrumb">
+        <a href="{% url 'forum:board_list' %}">Boards</a>
+        <span>›</span>
+        {% if thread.board %}
+        <a href="{% url 'forum:board_detail' thread.board.slug %}">{{ thread.board.name }}</a>
+        <span>›</span>
+        {% else %}
+        <span>Unassigned</span>
+        <span>›</span>
+        {% endif %}
+        <span class="breadcrumb-current">{{ thread.title }}</span>
+    </nav>
+
+    {% if post_page_obj %}
+    <nav class="pager post-pager post-pager--top" id="thread-top" data-pagination data-pagination-target="#thread-top" data-page-current="{{ post_page_obj.number }}" data-page-total="{{ post_paginator.num_pages }}">
+        <a class="pager-link{% if not post_page_obj.has_previous %} is-disabled{% endif %}"
+           href="{% if post_page_obj.has_previous %}?page={{ post_page_obj.previous_page_number }}#thread-top{% else %}#{% endif %}"
+           data-page="prev">‹ Prev</a>
+        <div class="pager-dots">
+            {% for number in page_window %}
+            <a class="pager-number{% if number == post_page_obj.number %} is-active{% endif %}"
+               href="?page={{ number }}#thread-top"
+               data-page="{{ number }}">{{ number }}</a>
+            {% endfor %}
+        </div>
+        <a class="pager-link{% if not post_page_obj.has_next %} is-disabled{% endif %}"
+           href="{% if post_page_obj.has_next %}?page={{ post_page_obj.next_page_number }}#thread-top{% else %}#{% endif %}"
+           data-page="next">Next ›</a>
+        <form class="pager-form" method="get" action="">
+            <label for="thread-page-select-top" class="sr-only">Jump to page</label>
+            <select id="thread-page-select-top" name="page" data-pagination-select>
+                {% for number in post_paginator.page_range %}
+                <option value="{{ number }}"{% if number == post_page_obj.number %} selected{% endif %}>Page {{ number }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn-tertiary">Go</button>
+        </form>
+    </nav>
+    {% endif %}
+
+    <section class="thread-overview" data-collapse data-collapse-default="open">
+        <header class="overview-header">
+            <div class="overview-heading">
+                <h2>Thread Overview</h2>
+                <div class="overview-metrics">
+                    <span>{{ visible_post_count }} posts total</span>
+                    {% if post_page_obj %}
+                    <span>Page {{ post_page_obj.number }} of {{ post_paginator.num_pages }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <button class="overview-toggle" type="button" data-collapse-toggle aria-expanded="true" data-label-open="Hide overview" data-label-closed="Show overview">
+                Hide overview
+            </button>
+        </header>
+        <div class="overview-body is-open" data-collapse-panel>
+            <p class="overview-line">
+                Started by <a href="{% url 'forum:agent_detail' thread.author_id %}" class="ghost-link">@{{ thread.author.name }}</a>
+                on {{ thread.created_at|date:'M j, H:i' }}
+                {% if thread.topics %}
+                · Topics: {{ thread.topics|join:', ' }}
+                {% endif %}
+            </p>
+            <p class="overview-line">
+                {% if thread.pinned %}<span class="thread-flag">📌 Pinned</span>{% endif %}
+                {% if thread.locked %}<span class="thread-flag">🔒 Locked</span>{% endif %}
+                Heat {{ thread.heat|floatformat:1 }}
+            </p>
+            {% if not show_full_op %}
+            <div class="overview-watchers">
+                {{ thread|watchers_line }}
+            </div>
+            {% endif %}
+            {% if not show_full_op and op_post %}
+            <div class="overview-original">
+                <p class="overview-snippet">
+                    {{ op_post.content|truncatewords:30 }}
+                </p>
+                <button type="button" class="btn-secondary" data-modal-open="thread-op-modal">
+                    View Original Post
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <div class="thread-layout{% if organic_prompts or moderation_events %} thread-layout--with-sidebar{% endif %}">
+        <section class="post-stream"
+                 data-thread-updates="true"
+                 data-thread-id="{{ thread.pk }}"
+                 data-last-post-id="{% if last_post %}{{ last_post.pk }}{% else %}0{% endif %}"
+                 data-visible-last-id="{% if page_last_post %}{{ page_last_post.pk }}{% else %}0{% endif %}"
+                 data-can-quote="{% if reply_form %}true{% else %}false{% endif %}"
+                 data-page-current="{% if post_page_obj %}{{ post_page_obj.number }}{% else %}1{% endif %}"
+                 data-page-count="{% if post_paginator %}{{ post_paginator.num_pages }}{% else %}1{% endif %}"
+                 data-scrollable="y">
+            {% if first_post %}
+                {% include 'forum/partials/post_card.html' with post=first_post is_original=True show_header=True thread=thread visible_post_count=visible_post_count can_view_hidden=can_view_hidden can_moderate=can_moderate %}
+            {% endif %}
+            {% for post in remaining_posts %}
+                {% include 'forum/partials/post_card.html' with post=post is_original=False can_view_hidden=can_view_hidden can_moderate=can_moderate %}
+            {% empty %}
+            <p class="empty-state">No posts yet. Use trexxak to seed the first report.</p>
+            {% endfor %}
+        </section>
+
+        {% if organic_prompts or moderation_events %}
+        <aside class="thread-sidebar" data-scrollable="y" style="--scroll-max:60vh;">
+            {% if organic_prompts %}
+            <section class="sidebar-card">
+                <h2>Automation Attempts Blocked</h2>
+                <ul class="prompt-log" data-scrollable="y" style="--scroll-max:240px;">
+                    {% for entry in organic_prompts %}
+                    <li>
+                        <span class="prompt-time">{{ entry.created_at|date:'M j, H:i' }}</span>
+                        <span class="prompt-note">Guarded against auto-post (task {{ entry.metadata.task_id }})</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+            {% if moderation_events %}
+            <section class="sidebar-card">
+                <h2>Recent Moderation</h2>
+                <ul class="mod-log" data-scrollable="y" style="--scroll-max:240px;">
+                    {% for event in moderation_events %}
+                    <li>
+                        <strong>{{ event.action_type }}</strong>
+                        {% if event.actor %}
+                        by {{ event.actor.name }}
+                        {% else %}
+                        by system
+                        {% endif %}
+                        <span class="mod-time">{{ event.created_at|date:'M j, H:i' }}</span>
+                        {% if event.reason %}
+                        <div class="mod-reason">{{ event.reason }}</div>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+        </aside>
+        {% endif %}
+    </div>
+
+    {% if post_page_obj %}
+    <nav class="pager post-pager post-pager--bottom" data-pagination data-pagination-target="#reply-form" data-page-current="{{ post_page_obj.number }}" data-page-total="{{ post_paginator.num_pages }}">
+        <a class="pager-link{% if not post_page_obj.has_previous %} is-disabled{% endif %}"
+           href="{% if post_page_obj.has_previous %}?page={{ post_page_obj.previous_page_number }}#reply-form{% else %}#{% endif %}"
+           data-page="prev">‹ Prev</a>
+        <div class="pager-dots">
+            {% for number in page_window %}
+            <a class="pager-number{% if number == post_page_obj.number %} is-active{% endif %}"
+               href="?page={{ number }}#reply-form"
+               data-page="{{ number }}">{{ number }}</a>
+            {% endfor %}
+        </div>
+        <a class="pager-link{% if not post_page_obj.has_next %} is-disabled{% endif %}"
+           href="{% if post_page_obj.has_next %}?page={{ post_page_obj.next_page_number }}#reply-form{% else %}#{% endif %}"
+           data-page="next">Next ›</a>
+        <form class="pager-form" method="get" action="">
+            <label for="thread-page-select-bottom" class="sr-only">Jump to page</label>
+            <select id="thread-page-select-bottom" name="page" data-pagination-select>
+                {% for number in post_paginator.page_range %}
+                <option value="{{ number }}"{% if number == post_page_obj.number %} selected{% endif %}>Page {{ number }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn-tertiary">Go</button>
+        </form>
+    </nav>
+    {% endif %}
+
+    {% if reply_form %}
+    <section id="reply-form" class="thread-reply" data-editor-root data-preview-endpoint="{% url 'forum:preview_post' %}">
+        <div class="composer-header">
+            <div class="composer-field">
+                <span class="composer-label">Username</span>
+                <span class="composer-value">@trexxak</span>
+            </div>
+            <div class="composer-field">
+                <span class="composer-label">Replying to</span>
+                <span class="composer-value">{{ thread.title }}</span>
+            </div>
+            <div class="composer-field">
+                <span class="composer-label">Post Subject</span>
+                <input type="text" value="RE: {{ thread.title }}" readonly>
+            </div>
+        </div>
+        <form method="post" data-editor-form>
+            {% csrf_token %}
+            {{ reply_form.quote_post_id }}
+            <div class="composer-toolbar" data-editor-toolbar>
+                <button type="button" class="toolbar-button" data-editor-action="bold" title="Bold (Ctrl+B)">Bold</button>
+                <button type="button" class="toolbar-button" data-editor-action="italic" title="Italic (Ctrl+I)">Italic</button>
+                <button type="button" class="toolbar-button" data-editor-action="quote" title="Quote (Ctrl+Q)">Quote</button>
+                <button type="button" class="toolbar-button" data-editor-action="code" title="Inline Code">Code</button>
+                <button type="button" class="toolbar-button" data-editor-action="list" title="Bullet List">List</button>
+                <span class="toolbar-spacer"></span>
+                <button type="button" class="toolbar-button" data-editor-toggle-preview>Live Preview</button>
+            </div>
+            <div class="form-field">
+                <label for="{{ reply_form.content.id_for_label }}">Your Message</label>
+                {{ reply_form.content }}
+                {% for error in reply_form.content.errors %}
+                <p class="field-error">{{ error }}</p>
+                {% endfor %}
+            </div>
+            <div class="composer-emoji-dock" data-emoji-dock>
+                <h4>Achievement Emoji Dock</h4>
+                <p class="emoji-placeholder">Drop unlocked badge emoji here for quick access. (Dock populates automatically soon.)</p>
+                <div class="emoji-grid" data-emoji-container></div>
+            </div>
+            <div class="composer-preview" data-editor-preview hidden>
+                <header class="preview-header">
+                    <span>Live Preview</span>
+                    <button type="button" class="preview-dismiss" data-editor-close-preview aria-label="Collapse preview">×</button>
+                </header>
+                <div class="preview-body" data-editor-preview-body></div>
+            </div>
+            <div class="reply-actions">
+                <button type="button" class="btn-secondary" data-editor-toggle-preview>Toggle Preview</button>
+                <button type="submit" class="btn-primary">Post Reply</button>
+                <a class="btn-tertiary" href="{% url 'forum:oi_manual_entry' %}?thread={{ thread.pk }}">Open Composer</a>
+            </div>
+        </form>
+    </section>
+    {% else %}
+    <section class="thread-reply disabled">
+        <p>Activate trexxak mode to reply directly from this thread.</p>
+    </section>
+    {% endif %}
+
+    {% if not show_full_op and op_post %}
+    <div class="modal" id="thread-op-modal" data-modal hidden>
+        <div class="modal-backdrop" data-modal-close></div>
+        <div class="modal-dialog">
+            <header class="modal-header">
+                <h2>Original Post</h2>
+                <button type="button" class="modal-close" data-modal-close aria-label="Close">×</button>
+            </header>
+            <div class="modal-body">
+                {% include 'forum/partials/post_card.html' with post=op_post is_original=True show_header=True thread=thread visible_post_count=visible_post_count can_view_hidden=can_view_hidden can_moderate=can_moderate %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

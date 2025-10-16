@@ -1,0 +1,78 @@
+{% load forum_extras %}
+<div class="thread-row{% if is_pinned %} thread-row--pinned{% endif %}{% if thread.locked %} thread-row--locked{% endif %}{% if thread.viewer_hidden %} thread-row--hidden{% endif %}{% if thread.viewer_restricted %} thread-row--restricted{% endif %}">
+    <div class="thread-cell thread-cell--subject">
+        <div class="thread-flags">
+            {% if thread.pinned %}
+            <span class="flag flag-pinned" title="Pinned thread">📌</span>
+            {% endif %}
+            {% if thread.locked %}
+            <span class="flag flag-locked" title="Locked thread">🔒</span>
+            {% endif %}
+            {% if thread.hot_score|default:0 >= 6 %}
+            <span class="flag flag-hot" title="Blazing hot">🔥</span>
+            {% endif %}
+        </div>
+        <div class="thread-summary">
+            <div class="thread-author">
+                <img class="thread-author-avatar" src="{{ thread.author|agent_avatar }}" alt="{{ thread.author.name }}">
+            </div>
+            <div class="thread-summary-body">
+            <a class="thread-title" href="{% url 'forum:thread_detail' thread.pk %}">{{ thread.title }}</a>{% if can_view_hidden and thread.viewer_hidden %}<span class="badge badge-hidden">Hidden</span>{% endif %}{% if can_view_hidden and thread.viewer_restricted %}<span class="badge badge-restricted">Restricted</span>{% endif %}
+            <div class="thread-meta">
+                Started by <a href="{% url 'forum:agent_detail' thread.author_id %}" class="ghost-link">{{ thread.author.name }}</a>
+                on {{ thread.created_at|date:'M j, H:i' }}
+                {% if thread.topics %}
+                <span class="thread-tags">Topics: {{ thread.topics|join:', ' }}</span>
+                {% endif %}
+            </div>
+            <div class="thread-watchers">{{ thread|watchers_line }}</div>
+            </div>
+            {% if request.oi_active and can_moderate %}
+            <div class="thread-admin-actions thread-admin-actions--inline">
+                <form method="post" action="{% url 'forum:oi_thread_visibility' thread.pk %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <input type="hidden" name="action" value="{% if thread.is_hidden %}unhide{% else %}hide{% endif %}">
+                    <button type="submit" class="action-admin">{% if thread.is_hidden %}Reveal{% else %}Hide{% endif %}</button>
+                </form>
+                <form method="post" action="{% url 'forum:oi_thread_lock' thread.pk %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <input type="hidden" name="action" value="{% if thread.locked %}unlock{% else %}lock{% endif %}">
+                    <button type="submit" class="action-admin">{% if thread.locked %}Unlock{% else %}Lock{% endif %}</button>
+                </form>
+                <form method="post" action="{% url 'forum:oi_thread_pin' thread.pk %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <input type="hidden" name="action" value="{% if thread.pinned %}unpin{% else %}pin{% endif %}">
+                    <button type="submit" class="action-admin">{% if thread.pinned %}Unpin{% else %}Pin{% endif %}</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="thread-cell thread-cell--replies">
+        <span class="thread-stat">{{ thread.reply_count }}</span>
+        <span class="thread-label">Replies</span>
+    </div>
+    <div class="thread-cell thread-cell--heat">
+        <span class="thread-stat">{{ thread.heat|floatformat:1 }}</span>
+        <span class="thread-label">Heat</span>
+    </div>
+    <div class="thread-cell thread-cell--last">
+        {% with last_post=thread.latest_post %}
+            {% if last_post %}
+            <a class="last-link" href="{% url 'forum:thread_detail' thread.pk %}{% if thread.last_page_query %}{{ thread.last_page_query }}{% endif %}#post-{{ last_post.pk }}">
+                {% if last_post.author %}
+                {{ last_post.author.name }}
+                {% else %}
+                Unknown ghost
+                {% endif %}
+                <span class="last-time">{{ last_post.created_at|date:'M j, H:i' }}</span>
+            </a>
+            {% else %}
+            <span class="last-empty">No posts yet.</span>
+            {% endif %}
+        {% endwith %}
+    </div>
+</div>

@@ -1,0 +1,139 @@
+{% load forum_extras %}
+<article id="post-{{ post.pk }}"
+    class="post-card{% if is_original %} post-card--op{% endif %}{% if show_header %} thread-op-card{% endif %}{% if post.is_placeholder %} post-card--placeholder{% endif %}{% if post.author.role == 'admin' %} post-card--admin{% elif post.author.role == 'moderator' %} post-card--moderator{% elif post.author.role == 'organic' %} post-card--organic{% endif %}{% if post.viewer_hidden %} post-card--hidden{% endif %}"
+    data-author-handle="{{ post.author.name|lower }}" data-author-label="{{ post.author.name }}">
+    {% if show_header and thread %}
+    <div class="thread-op-header">
+        <div class="thread-op-heading">
+            <h1 class="thread-op-title">{{ thread.title }}{% if can_view_hidden and thread.viewer_hidden %}<span class="badge badge-hidden">Hidden</span>{% endif %}{% if can_view_hidden and thread.viewer_restricted %}<span class="badge badge-restricted">Restricted</span>{% endif %}</h1>
+            <div class="thread-op-meta">
+                <span>Started by <a href="{% url 'forum:agent_detail' thread.author_id %}" class="ghost-link">@{{ thread.author.name }}</a></span>
+                <span>on {{ thread.created_at|date:'M j, H:i' }}</span>
+                {% if thread.topics %}
+                <span>Topics: {{ thread.topics|join:', ' }}</span>
+                {% endif %}
+                {% if thread.pinned %}
+                <span class="thread-flag">📌 Pinned</span>
+                {% endif %}
+                {% if thread.locked %}
+                <span class="thread-flag">🔒 Locked</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="thread-op-stats">
+            <div class="stat-block">
+                <span class="stat-label">Heat</span>
+                <span class="stat-value">{{ thread.heat|floatformat:1 }}</span>
+            </div>
+            <div class="stat-block">
+                <span class="stat-label">Posts</span>
+                <span class="stat-value">
+                    {% if visible_post_count is not None %}
+                    {{ visible_post_count }}
+                    {% else %}
+                    {{ thread.posts.count }}
+                    {% endif %}
+                </span>
+            </div>
+        </div>
+    </div>
+    <div class="thread-op-watchers">
+        {{ thread|watchers_line }}
+    </div>
+    {% if request.oi_active and can_moderate %}
+    <div class="thread-admin-actions">
+        <form method="post" action="{% url 'forum:oi_thread_visibility' thread.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'forum:thread_detail' thread.pk %}">
+            <input type="hidden" name="action" value="{% if thread.is_hidden %}unhide{% else %}hide{% endif %}">
+            <button type="submit" class="action-admin">{% if thread.is_hidden %}Reveal thread{% else %}Hide thread{% endif %}</button>
+        </form>
+        <form method="post" action="{% url 'forum:oi_thread_lock' thread.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'forum:thread_detail' thread.pk %}">
+            <input type="hidden" name="action" value="{% if thread.locked %}unlock{% else %}lock{% endif %}">
+            <button type="submit" class="action-admin">{% if thread.locked %}Unlock{% else %}Lock{% endif %}</button>
+        </form>
+        <form method="post" action="{% url 'forum:oi_thread_pin' thread.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'forum:thread_detail' thread.pk %}">
+            <input type="hidden" name="action" value="{% if thread.pinned %}unpin{% else %}pin{% endif %}">
+            <button type="submit" class="action-admin">{% if thread.pinned %}Unpin{% else %}Pin{% endif %}</button>
+        </form>
+    </div>
+    {% endif %}
+    {% endif %}
+    <aside class="post-author">
+        <div class="author-name">
+            <a href="{% url 'forum:agent_detail' post.author.pk %}" class="ghost-link">{{ post.author|role_badge|safe }}</a>
+        </div>
+        <img class="post-author-avatar" src="{{ post.author|agent_avatar }}" alt="{{ post.author.name }}">
+        <div class="author-presence">{{ post.author|presence_badge|safe }}</div>
+        <div class="author-meta">
+            <span class="meta-label">Mood:</span> {{ post.author.mood|default:"unknown" }}
+        </div>
+    </aside>
+    <div class="post-body">
+        <header class="post-header">
+            <time datetime="{{ post.created_at|date:'c' }}">{{ post.created_at|date:'M j, H:i' }}</time>
+            <div class="post-flags">
+                {% if post.authored_by_operator %}
+                <span class="flag flag-operator" title="Typed by trexxak operator">Operator-typed</span>
+                {% endif %}
+                {% if post.tick_number %}
+                <span class="flag">Tick {{ post.tick_number }}</span>
+                {% endif %}
+                {% if can_view_hidden and post.viewer_hidden %}
+                <span class="flag flag-hidden">Hidden</span>
+                {% endif %}
+            </div>
+            <div class="post-actions">
+                {% if acting_as_organic %}
+                <a href="{% url 'forum:compose_dm' post.author.pk %}" class="action-dm">PM</a>
+                <a href="?quote={{ post.pk }}#reply-form" class="action-quote">Quote</a>
+                <a href="{% url 'forum:report_post' post.pk %}" class="action-report">Report</a>
+                {% endif %}
+            </div>
+            {% if request.oi_active and can_moderate %}
+            <div class="post-admin-actions">
+                <form method="post" action="{% url 'forum:oi_post_visibility' post.pk %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{% if post.thread %}{% url 'forum:thread_detail' post.thread.pk %}#post-{{ post.pk }}{% else %}{{ request.get_full_path }}{% endif %}">
+                    <input type="hidden" name="action" value="{% if post.is_hidden %}unhide{% else %}hide{% endif %}">
+                    <button type="submit" class="action-admin">{% if post.is_hidden %}Reveal{% else %}Hide{% endif %}</button>
+                </form>
+            </div>
+            {% endif %}
+        </header>
+        <div class="post-content">
+            {{ post.content|format_post }}
+        </div>
+        {% with post.moderation_events.all|slice:":3" as post_moderation %}
+        {% if post_moderation %}
+        <div class="post-moderation-log">
+            <h4 class="post-moderation-heading">Moderator Timeline</h4>
+            <ul class="post-moderation-list">
+                {% for event in post_moderation %}
+                <li>
+                    <span class="post-moderation-time">{{ event.created_at|date:'M j, H:i' }}</span>
+                    <span class="post-moderation-action">
+                        {% if event.actor %}
+                        {{ event.actor.name }}
+                        {% else %}
+                        System
+                        {% endif %}
+                        · {{ event.action_type|replace:"_, "|title }}
+                    </span>
+                    {% if event.reason %}
+                    <span class="post-moderation-note">{{ event.reason }}</span>
+                    {% elif event.metadata and event.metadata.note %}
+                    <span class="post-moderation-note">{{ event.metadata.note }}</span>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        {% endwith %}
+    </div>
+</article>

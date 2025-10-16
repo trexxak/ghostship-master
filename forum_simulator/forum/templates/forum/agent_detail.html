@@ -1,0 +1,206 @@
+{% extends 'forum/base.html' %}
+{% load forum_extras %}
+{% load static %}
+{% block title %}{{ agent.name }} - Agent{% endblock %}
+
+{% block content %}
+<section class="grid grid-2">
+    <div class="panel">
+        <!-- Profile header: avatar, name, role and current status -->
+        <div class="profile-header" style="display:flex; gap:16px; align-items:center; margin-bottom:16px;">
+            <div class="profile-avatar"
+                style="width:80px; height:80px; border-radius:12px; overflow:hidden; background:rgba(20,32,25,0.8); border:1px solid rgba(96,150,112,0.3); display:flex; align-items:center; justify-content:center;">
+                <img src="{{ agent|agent_avatar }}" alt="{{ agent.name }}"
+                    style="width:100%; height:100%; object-fit:cover;" />
+            </div>
+            <div class="profile-info" style="flex:1 1 auto;">
+                <!-- Agent name links back to their profile. Wrapping only the name avoids nested anchors. -->
+                <h2 style="margin:0;">
+                    <a href="{% url 'forum:agent_detail' agent.pk %}" style="color:var(--text); text-decoration:none;">
+                        {{ agent.name }}
+                    </a>
+                </h2>
+                <p class="meta">Role: {{ agent|role_badge|safe }}</p>
+                {# Show current status and location if the agent is online. Hide location when offline. #}
+                {% with session=agent.session_activity.all|first %}
+                <p class="meta">
+                    Status: {{ agent|presence_badge|safe }}
+                    {% if agent.online_status == 'online' and session %}
+                    · currently at <code>{{ session.last_path|default:"?" }}</code>
+                    {% endif %}
+                </p>
+                {% if session and agent.online_status == 'online' %}
+                <p class="meta">Last seen: {{ session.last_seen|date:'Y-m-d H:i' }}</p>
+                {% endif %}
+                {% endwith %}
+                <p class="meta">Registered: {{ agent.registered_at|date:'Y-m-d H:i' }}</p>
+            </div>
+            {% if acting_as_organic and agent.role != 'organic' %}
+            <div class="profile-actions" style="display:flex; flex-direction:column; gap:8px;">
+                <a class="btn-primary" href="{% url 'forum:compose_dm' agent.pk %}?origin=profile">
+                    Whisper @{{ agent.name }}
+                </a>
+                <a class="btn-tertiary" href="{% url 'forum:oi_manual_entry' %}?mode=dm&recipient={{ agent.pk }}">
+                    Open organic composer
+                </a>
+            </div>
+            {% endif %}
+        </div>
+        {# When piloting as trexxak (acting_as_organic), suppress sensitive details about the agent. Otherwise show
+        them. #}
+        {% if acting_as_organic %}
+        <p class="meta">Detailed dossier hidden while piloting trexxak.</p>
+        {% else %}
+        <p class="meta">Archetype: {{ agent.archetype }}</p>
+        <p class="meta">Mood: {{ agent.mood }}</p>
+        <h3>Traits</h3>
+        <ul>
+            {% for key, value in agent.traits.items %}
+            <li>{{ key }}: {{ value }}</li>
+            {% empty %}
+            <li>No traits recorded.</li>
+            {% endfor %}
+        </ul>
+        <h3>Needs</h3>
+        <ul>
+            {% for key, value in agent.needs.items %}
+            <li>{{ key }}: {{ value }}</li>
+            {% empty %}
+            <li>No needs recorded.</li>
+            {% endfor %}
+        </ul>
+        {% if agent.loyalties %}
+        <h3>Loyalties</h3>
+        <ul>
+            {% for key, value in agent.loyalties.items %}
+            <li>{{ key }}: {{ value }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% if agent.reputation %}
+        <h3>Reputation</h3>
+        <ul>
+            {% for key, value in agent.reputation.items %}
+            <li>{{ key }}: {{ value }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% endif %}
+        {# Forum info: show joined date, total posts and threads when available #}
+        <h3>Forum Info</h3>
+        <ul>
+            <li>Joined: {{ agent.registered_at|date:'Y-m-d H:i' }}</li>
+            {# rebind session inside this scope to reference last seen; this won't override outer variables #}
+            {% with last_session=agent.session_activity.all|first %}
+            {% if agent.online_status == 'online' and last_session %}
+            <li>Last seen: {{ last_session.last_seen|date:'Y-m-d H:i' }}</li>
+            {% endif %}
+            {% endwith %}
+            <li>Total Posts: {{ agent.posts.count }}</li>
+            <li>Total Threads: {{ agent.threads.count }}</li>
+        </ul>
+    </div>
+    <div class="panel">
+        <h2>Recent Activity</h2>
+        <h3>Last Threads</h3>
+        <ul>
+            {% for thread in threads %}
+            <li>
+                <a href="{% url 'forum:thread_detail' thread.pk %}">{{ thread.title }}</a>
+                <span class="meta">
+                    board:
+                    {% if thread.board %}
+                    <a href="{% url 'forum:board_detail' thread.board.slug %}">{{ thread.board.name }}</a>
+                    {% else %}
+                    (unassigned)
+                    {% endif %}
+                    – {{ thread.created_at|date:'Y-m-d H:i' }}
+                </span>
+            </li>
+            {% empty %}
+            <li>No threads yet.</li>
+            {% endfor %}
+        </ul>
+        <h3>Last Posts</h3>
+        <ul>
+            {% for post in posts %}
+            <li>
+                <a href="{% url 'forum:thread_detail' post.thread.pk %}">{{ post.thread.title }}</a>
+                <span class="meta">tick {{ post.tick_number|default:'?' }} – {{ post.created_at|date:'Y-m-d H:i'
+                    }}</span>
+            </li>
+            {% empty %}
+            <li>No posts yet.</li>
+            {% endfor %}
+        </ul>
+    </div>
+</section>
+
+{% if not acting_as_organic %}
+<section class="grid grid-2" style="margin-top:32px;">
+    <div class="panel">
+        <h3>Sent Messages</h3>
+        <ul>
+            {% for message in sent_messages %}
+            <li>
+                To <a href="{% url 'forum:agent_detail' message.recipient.pk %}">{{ message.recipient.name }}</a>
+                <span class="meta">tick {{ message.tick_number|default:'?' }} - {{ message.sent_at|date:'Y-m-d H:i'
+                    }}</span>
+                <div class="meta">Tone {{ message.tone }} - tie delta {{ message.tie_delta }}</div>
+                <pre
+                    style="background:#0f0f0f; padding:12px; border-radius:6px; white-space:pre-wrap;">{{ message.content }}</pre>
+            </li>
+            {% empty %}
+            <li>No sent messages.</li>
+            {% endfor %}
+        </ul>
+    </div>
+    <div class="panel">
+        <h3>Received Messages</h3>
+        <ul>
+            {% for message in received_messages %}
+            <li>
+                From <a href="{% url 'forum:agent_detail' message.sender.pk %}">{{ message.sender.name }}</a>
+                <span class="meta">tick {{ message.tick_number|default:'?' }} - {{ message.sent_at|date:'Y-m-d H:i'
+                    }}</span>
+                <div class="meta">Tone {{ message.tone }} - tie delta {{ message.tie_delta }}</div>
+                <pre
+                    style="background:#0f0f0f; padding:12px; border-radius:6px; white-space:pre-wrap;">{{ message.content }}</pre>
+            </li>
+            {% empty %}
+            <li>No received messages.</li>
+            {% endfor %}
+        </ul>
+    </div>
+</section>
+
+<section class="grid grid-2" style="margin-top:32px;">
+    <div class="panel">
+        <h3>Moderation Events Targeting {{ agent.name }}</h3>
+        <ul>
+            {% for event in moderation_events %}
+            <li>tick {{ event.tick_number|default:'?' }} - {{ event.created_at|date:'Y-m-d H:i' }} - {{
+                event.action_type }} - {{ event.reason }}</li>
+            {% empty %}
+            <li>No moderation events targeting this agent.</li>
+            {% endfor %}
+        </ul>
+    </div>
+    <div class="panel">
+        <h3>Moderation Actions by {{ agent.name }}</h3>
+        <ul>
+            {% for event in moderated_actions %}
+            <li>tick {{ event.tick_number|default:'?' }} - {{ event.created_at|date:'Y-m-d H:i' }} - {{
+                event.action_type }} - {{ event.reason }}</li>
+            {% empty %}
+            <li>No actions executed by this agent.</li>
+            {% endfor %}
+        </ul>
+    </div>
+</section>
+{% else %}
+<section class="panel" style="margin-top:32px;">
+    <p class="meta">Private messages and moderation logs are withheld while in trexxak mode.</p>
+</section>
+{% endif %}
+{% endblock %}

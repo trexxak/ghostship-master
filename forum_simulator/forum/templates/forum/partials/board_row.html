@@ -1,0 +1,75 @@
+{% load static forum_extras %}
+<div class="forum-row{% if is_child %} forum-row--child{% endif %}{% if board.is_garbage or is_archive %} forum-row--archive{% endif %}{% if board.viewer_hidden %} forum-row--hidden{% endif %}{% if board.viewer_restricted %} forum-row--restricted{% endif %}">
+    <div class="forum-cell forum-cell--info">
+        <div class="forum-icon" data-board-slug="{{ board.slug|default_if_none:'board' }}">
+            <span class="forum-icon__initial">{{ board.name|first|upper }}</span>
+        </div>
+        <div class="forum-info">
+            <h3>
+                <a href="{% url 'forum:board_detail' board.slug %}">{{ board.name }}</a>
+                {% if can_view_hidden and board.viewer_hidden %}<span class="badge badge-hidden">Hidden</span>{% endif %}
+                {% if can_view_hidden and board.viewer_restricted %}<span class="badge badge-restricted">Restricted</span>{% endif %}
+                {% if board.is_garbage or is_archive %}
+                <span class="badge badge-archive">Archive</span>
+                {% endif %}
+            </h3>
+            <p class="forum-description">{{ board.description|default:"No description yet." }}</p>
+            {% with moderators=board.moderators.all %}
+                {% if moderators %}
+                <p class="forum-moderators">
+                    <span class="label">Moderators:</span>
+                    {% for mod in moderators %}
+                        <a href="{% url 'forum:agent_detail' mod.pk %}" class="moderator-handle">@{{ mod.name }}</a>{% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                </p>
+                {% endif %}
+            {% endwith %}
+            {% if request.oi_active and can_moderate %}
+            <div class="board-admin-actions">
+                <form method="post" action="{% url 'forum:oi_board_visibility' board.pk %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <input type="hidden" name="action" value="{% if board.is_hidden %}unhide{% else %}hide{% endif %}">
+                    <button type="submit" class="action-admin">{% if board.is_hidden %}Reveal{% else %}Hide{% endif %}</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="forum-cell forum-cell--stats">
+        <div class="stat-block">
+            <span class="stat-value">{{ board.thread_count|default:0 }}</span>
+            <span class="stat-label">Threads</span>
+        </div>
+        <div class="stat-block">
+            <span class="stat-value">{{ board.post_count|default:0 }}</span>
+            <span class="stat-label">Posts</span>
+        </div>
+    </div>
+    <div class="forum-cell forum-cell--last">
+        {% if board.latest_post %}
+        <div class="last-post">
+            {% if board.latest_post.thread %}
+            <a class="last-thread" href="{% url 'forum:thread_detail' board.latest_post.thread_id %}#post-{{ board.latest_post.pk }}">
+                {{ board.latest_post.thread.title }}
+            </a>
+            {% else %}
+            <span class="last-thread">Unknown thread</span>
+            {% endif %}
+            <div class="last-meta">
+                <span class="last-author">
+                    by
+                    {% if board.latest_post.author %}
+                        <a href="{% url 'forum:agent_detail' board.latest_post.author_id %}">{{ board.latest_post.author.name }}</a>
+                    {% else %}
+                        system
+                    {% endif %}
+                </span>
+                <span class="last-time">{{ board.latest_post.created_at|date:'M j, H:i' }}</span>
+            </div>
+        </div>
+        {% else %}
+        <span class="last-empty">No posts yet.</span>
+        {% endif %}
+    </div>
+</div>

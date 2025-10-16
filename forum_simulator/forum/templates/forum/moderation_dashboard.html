@@ -1,0 +1,153 @@
+﻿{% extends 'forum/base.html' %}
+{% load forum_extras %}
+
+{% block title %}Moderation Dashboard{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h2>Ticket Queue</h2>
+    <p class="meta">Open and in-progress items stay here until you resolve or archive them. Use the quick actions below to clear finished reports.</p>
+    <div class="meta" style="margin-bottom:12px;">
+        <form method="get" style="display:flex; gap:12px; flex-wrap:wrap;">
+            <label>Status
+                <select name="status">
+                    <option value="">All</option>
+                    {% for value, label in status_choices %}
+                        <option value="{{ value }}"{% if status_filter == value %} selected{% endif %}>{{ label|title|replace:"_, " }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Source
+                <select name="source">
+                    <option value="">All</option>
+                    {% for value, label in source_choices %}
+                        <option value="{{ value }}"{% if source_filter == value %} selected{% endif %}>{{ label|title }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button type="submit" class="btn">Filter</button>
+        </form>
+        <div style="margin-top:8px; font-size:0.9rem;">
+            {% for status, count in status_summary.items %}
+                <span style="margin-right:12px;">{{ status|title|replace:"_, " }}: {{ count }}</span>
+            {% empty %}
+                <span>No tickets yet.</span>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if tickets %}
+        <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:16px;">
+            {% for ticket in tickets %}
+                <li class="panel" style="background:rgba(0,0,0,0.25);">
+                    <h3 style="margin-top:0;">#{{ ticket.id }} · {{ ticket.title }}</h3>
+                    <p class="meta">Status: {{ ticket.status|title|replace:"_, " }} · Priority: {{ ticket.priority|title }} · Source: {{ ticket.source|title }}</p>
+                    <p class="meta">Opened {{ ticket.opened_at|date:'Y-m-d H:i' }}{% if ticket.closed_at %} · Closed {{ ticket.closed_at|date:'Y-m-d H:i' }}{% endif %}</p>
+                    {% if ticket.description %}
+                        <p>{{ ticket.description }}</p>
+                    {% endif %}
+                    <p class="meta">Reporter: {% if ticket.reporter %}{{ ticket.reporter|role_badge|safe }}{% elif ticket.reporter_name %}{{ ticket.reporter_name }}{% else %}system{% endif %}
+                        {% if ticket.assignee %} · Assigned to {{ ticket.assignee|role_badge|safe }}{% endif %}
+                        {% if ticket.thread %} · <a href="{% url 'forum:thread_detail' ticket.thread.pk %}">View thread</a>{% endif %}
+                    </p>
+
+                    {% if ticket.history %}
+                        <details style="margin-bottom:12px;">
+                            <summary class="meta">History ({{ ticket.history|length }})</summary>
+                            <ul style="list-style:none; padding:0; margin-top:8px;">
+                                {% for entry in ticket.history|dictsortreversed:"ts" %}
+                                    <li class="meta">{{ entry.ts }} · {{ entry.actor|default:'system' }} · {{ entry.to|replace:"_, "|title }}{% if entry.note %} — {{ entry.note }}{% endif %}</li>
+                                {% endfor %}
+                            </ul>
+                        </details>
+                    {% endif %}
+
+                    <form method="post" action="{% url 'forum:moderation_ticket_action' ticket.pk %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="ticket_id" value="{{ ticket.id }}">
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <div class="form-field">
+                            <label>Action
+                                <select name="action">
+                                    {% for value, label in action_choices %}
+                                        <option value="{{ value }}">{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                        </div>
+                        <div class="form-field">
+                            <label>Acting moderator
+                                <input type="text" name="actor_handle" placeholder="t.admin">
+                            </label>
+                        </div>
+                        <div class="form-field">
+                            <label>Assign to (handle when assigning)
+                                <input type="text" name="assignee_handle" placeholder="mod.handle">
+                            </label>
+                        </div>
+                        <div class="form-field">
+                            <label>Notes
+                                <textarea name="note" rows="2" placeholder="Add context for this decision"></textarea>
+                            </label>
+                        </div>
+                        <button type="submit" class="btn primary">Submit Action</button>
+                    </form>
+                    <div class="ticket-quick-actions">
+                        <form method="post" action="{% url 'forum:oi_ticket_resolve' ticket.pk %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                            <input type="text" name="note" placeholder="Resolution note" class="quick-note">
+                            <button type="submit" class="btn-secondary">Mark Resolved</button>
+                        </form>
+                        <form method="post" action="{% url 'forum:oi_ticket_scrap' ticket.pk %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                            <input type="text" name="note" placeholder="Archive note" class="quick-note">
+                            <button type="submit" class="btn-tertiary">Scrap Ticket</button>
+                        </form>
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No tickets in the queue. 🎉</p>
+    {% endif %}
+</div>
+
+<div class="panel" style="margin-top:24px;">
+    <h2>Report Archive</h2>
+    <p class="meta">Recently resolved or scrapped reports stay here for audit with moderator notes.</p>
+    {% if resolved_tickets %}
+    <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:12px;">
+        {% for ticket in resolved_tickets %}
+        <li class="panel" style="background:rgba(0,0,0,0.2);">
+            <h3 style="margin-top:0;">#{{ ticket.id }} · {{ ticket.title }}</h3>
+            <p class="meta">Status: {{ ticket.status|title|replace:"_, " }} · Closed {{ ticket.closed_at|date:'Y-m-d H:i' }}</p>
+            {% if ticket.resolution %}<p>{{ ticket.resolution }}</p>{% endif %}
+            <p class="meta">Handled by {% if ticket.assignee %}{{ ticket.assignee|role_badge|safe }}{% else %}system{% endif %}</p>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="meta">No archived reports yet.</p>
+    {% endif %}
+</div>
+
+<div class="panel" style="margin-top:24px;">
+    <h2>Recent Moderation Events</h2>
+    {% if recent_events %}
+        <ul style="list-style:none; padding:0;">
+            {% for event in recent_events %}
+                <li style="margin-bottom:8px;">
+                    <strong>{{ event.action_type }}</strong> · {% if event.actor %}{{ event.actor|role_badge|safe }}{% else %}system{% endif %}
+                    {% if event.ticket %} · Ticket #{{ event.ticket_id }}{% endif %}
+                    <span class="meta">{{ event.created_at|date:'Y-m-d H:i' }}</span>
+                    {% if event.reason %}<div class="meta">{{ event.reason }}</div>{% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No recent moderation activity.</p>
+    {% endif %}
+</div>
+{% endblock %}

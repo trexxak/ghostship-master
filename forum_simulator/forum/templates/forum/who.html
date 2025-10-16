@@ -1,0 +1,110 @@
+﻿{% extends 'forum/base.html' %}
+{% load forum_extras %}
+
+{% block title %}Who’s Online{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h2>Who’s Navigating The Decks</h2>
+    <p class="meta">{{ agent_total }} agent{{ agent_total|pluralize }} &middot; {{ guest_total }} guest{{ guest_total|pluralize }}</p>
+    <form class="agent-search presence-search" method="get">
+        <label for="presence-filter" class="sr-only">Search agents</label>
+        <input id="presence-filter" type="search" name="q" value="{{ search_query }}" placeholder="Search by handle or location…">
+        <label for="presence-sort" class="sr-only">Sort by</label>
+        <select id="presence-sort" name="sort">
+            {% for value, label in sort_options %}
+            <option value="{{ value }}" {% if current_sort == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn-tertiary">Apply</button>
+        {% if search_query or current_sort != 'recent' %}
+        <a href="{% url 'forum:who' %}" class="btn-secondary">Clear</a>
+        {% endif %}
+    </form>
+    {% if entries %}
+    <table class="roster-table">
+        <thead>
+            <tr>
+                <th>Agent</th>
+                <th>Current Deck</th>
+                <th>Board</th>
+                <th>Activity</th>
+                <th>Last Ping</th>
+                {% if acting_as_organic %}
+                <th>Actions</th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in entries %}
+            <tr>
+                <td>
+                    <a class="ghost-handle role-{{ entry.agent.role }}" href="{% url 'forum:agent_detail' entry.agent.pk %}">
+                        @{{ entry.agent.name }}
+                    </a>
+                </td>
+                <td>
+                    {% if entry.location_url %}
+                    <a href="{{ entry.location_url }}">{{ entry.location_label }}</a>
+                    {% else %}
+                    {{ entry.location_label|default:"—" }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if entry.board %}
+                    <a href="{% url 'forum:board_detail' entry.board.slug %}">{{ entry.board.name }}</a>
+                    {% else %}
+                    <span class="meta">—</span>
+                    {% endif %}
+                </td>
+                <td>{{ entry.activity|default:"Wandering" }}</td>
+                <td>{{ entry.last_seen|date:'H:i' }}</td>
+                {% if acting_as_organic %}
+                <td>
+                    {% if entry.agent.role != 'organic' %}
+                    <a class="btn-tertiary btn-compact" href="{% url 'forum:compose_dm' entry.agent.pk %}?origin=presence">
+                        DM
+                    </a>
+                    {% else %}
+                    <span class="meta">—</span>
+                    {% endif %}
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No one is actively cruising the decks right now.</p>
+    {% endif %}
+</div>
+
+{% if guest_summary %}
+<div class="panel" style="margin-top:24px;">
+    <h3>Guest Watchers</h3>
+    <table class="roster-table roster-table--compact">
+        <thead>
+            <tr>
+                <th>Thread</th>
+                <th>Guests</th>
+                <th>Last Seen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for summary in guest_summary %}
+            <tr>
+                <td>
+                    <a href="{% url 'forum:thread_detail' summary.thread.pk %}">{{ summary.thread.title }}</a>
+                    {% if summary.thread.board %}
+                    <span class="meta">({{ summary.thread.board.name }})</span>
+                    {% endif %}
+                </td>
+                <td>{{ summary.count }}</td>
+                <td>{{ summary.last_seen|date:'H:i' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

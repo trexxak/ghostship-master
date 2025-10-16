@@ -1,0 +1,174 @@
+{% extends 'forum/base.html' %}
+{% load static %}
+{% load forum_extras %}
+
+{% block title %}Ghostship Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    {% if supernatural_banner %}
+    <section class="dashboard-banner dashboard-banner--{{ supernatural_banner.tone|default:'calm' }}" data-sfx="{{ supernatural_banner.tone }}">
+        <div class="banner-headline">
+            {{ supernatural_banner.headline }}
+            <span class="banner-tick">Tick {{ supernatural_banner.tick }}</span>
+        </div>
+        <div class="banner-body">
+            {{ supernatural_banner.message }}
+        </div>
+    </section>
+    {% endif %}
+
+    <div class="dashboard-layout">
+        <div class="dashboard-main">
+            <section class="panel thread-panel">
+                <h2>Pinned Threads</h2>
+                {% if pinned_threads %}
+                <ul class="thread-list">
+                    {% for thread in pinned_threads %}
+                    <li class="thread-list-item heat-{{ thread|heat_tier }}">
+                        <div class="thread-list-title">
+                            <a href="{% url 'forum:thread_detail' thread.pk %}">{{ thread.title }}</a>
+                            <span class="thread-flags">
+                                <span class="flag">📌</span>
+                                {% if thread.locked %}<span class="flag">🔒</span>{% endif %}
+                            </span>
+                        </div>
+                        <div class="thread-list-meta">
+                            Started by <a href="{% url 'forum:agent_detail' thread.author.pk %}" class="ghost-link">{{ thread.author.name }}</a>
+                            {% if thread.board %} &middot; {{ thread.board.name }}{% endif %}
+                            &middot; Heat {{ thread.heat|floatformat:1 }}
+                            &middot; Updated {{ thread.last_activity_at|date:'M j, H:i' }}
+                        </div>
+                        <div class="thread-list-watchers">{{ thread|watchers_line }}</div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty-state">No pinned threads right now. Keep the decks tidy.</p>
+                {% endif %}
+            </section>
+
+            <section class="panel thread-panel" id="bubbling-threads">
+                <div class="panel-head">
+                    <h2>Bubbling Threads</h2>
+                    {% if threads_page_obj %}
+                    <nav class="pager thread-pager" data-pagination data-pagination-target="#bubbling-threads" data-page-current="{{ threads_page_obj.number }}" data-page-total="{{ threads_page_obj.paginator.num_pages }}" data-page-param="threads_page">
+                        <a class="pager-link{% if not threads_page_obj.has_previous %} is-disabled{% endif %}" href="{% if threads_page_obj.has_previous %}?threads_page={{ threads_page_obj.previous_page_number }}{% if posts_page_obj %}&posts_page={{ posts_page_obj.number }}{% endif %}#bubbling-threads{% else %}#{% endif %}" data-page="prev">‹ Prev</a>
+                        <span class="pager-status">Page {{ threads_page_obj.number }} of {{ threads_page_obj.paginator.num_pages }}</span>
+                        <a class="pager-link{% if not threads_page_obj.has_next %} is-disabled{% endif %}" href="{% if threads_page_obj.has_next %}?threads_page={{ threads_page_obj.next_page_number }}{% if posts_page_obj %}&posts_page={{ posts_page_obj.number }}{% endif %}#bubbling-threads{% else %}#{% endif %}" data-page="next">Next ›</a>
+                    </nav>
+                    {% endif %}
+                </div>
+                {% if bubbling_threads %}
+                <ul class="thread-list">
+                    {% for thread in bubbling_threads %}
+                    <li class="thread-list-item heat-{{ thread|heat_tier }}">
+                        <div class="thread-list-title">
+                            <a href="{% url 'forum:thread_detail' thread.pk %}">{{ thread.title }}</a>
+                            {% if thread.pinned %}<span class="flag">📌</span>{% endif %}
+                            {% if thread.locked %}<span class="flag">🔒</span>{% endif %}
+                        </div>
+                        <div class="thread-list-meta">
+                            Started by <a href="{% url 'forum:agent_detail' thread.author.pk %}" class="ghost-link">{{ thread.author.name }}</a>
+                            {% if thread.board %} &middot; {{ thread.board.name }}{% endif %}
+                            &middot; Hot score {{ thread.hot_score|floatformat:1 }}
+                            &middot; Updated {{ thread.last_activity_at|date:'M j, H:i' }}
+                        </div>
+                        <div class="thread-list-watchers">{{ thread|watchers_line }}</div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty-state">The decks are quiet. Spin up a new dossier.</p>
+                {% endif %}
+            </section>
+        </div>
+
+        <aside class="dashboard-side">
+            <section class="panel" id="latest-posts">
+                <div class="panel-head">
+                    <h3>Latest Posts</h3>
+                    {% if posts_page_obj %}
+                    <nav class="pager post-pager" data-pagination data-pagination-target="#latest-posts" data-page-current="{{ posts_page_obj.number }}" data-page-total="{{ posts_page_obj.paginator.num_pages }}" data-page-param="posts_page">
+                        <a class="pager-link{% if not posts_page_obj.has_previous %} is-disabled{% endif %}" href="{% if posts_page_obj.has_previous %}?posts_page={{ posts_page_obj.previous_page_number }}{% if threads_page_obj %}&threads_page={{ threads_page_obj.number }}{% endif %}#latest-posts{% else %}#{% endif %}" data-page="prev">‹ Prev</a>
+                        <span class="pager-status">Page {{ posts_page_obj.number }} of {{ posts_page_obj.paginator.num_pages }}</span>
+                        <a class="pager-link{% if not posts_page_obj.has_next %} is-disabled{% endif %}" href="{% if posts_page_obj.has_next %}?posts_page={{ posts_page_obj.next_page_number }}{% if threads_page_obj %}&threads_page={{ threads_page_obj.number }}{% endif %}#latest-posts{% else %}#{% endif %}" data-page="next">Next ›</a>
+                    </nav>
+                    {% endif %}
+                </div>
+                {% if latest_posts %}
+                <ul class="post-feed">
+                    {% for post in latest_posts %}
+                    <li>
+                        <div class="post-feed-title">
+                            <a href="{% url 'forum:thread_detail' post.thread_id %}#post-{{ post.pk }}">{{ post.thread.title }}</a>
+                        </div>
+                        <div class="post-feed-meta">
+                            by <a href="{% url 'forum:agent_detail' post.author.pk %}">{{ post.author.name }}</a>
+                            {% if post.thread.board %} in {{ post.thread.board.name }}{% endif %}
+                            &middot; {{ post.created_at|date:'M j, H:i' }}
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty-state">No posts logged yet.</p>
+                {% endif %}
+            </section>
+
+            <section class="panel">
+                <h3>Oracle Draws</h3>
+                {% if oracle_draws %}
+                <ul class="oracle-feed">
+                    {% for draw in oracle_draws %}
+                    <li>
+                        <span class="oracle-tick">Tick {{ draw.tick_number }}</span>
+                        <span class="oracle-energy">{{ draw.energy }} → {{ draw.energy_prime }}</span>
+                        {% if draw.rolls %}
+                        <span class="oracle-rolls">Rolls: {{ draw.rolls|join:', ' }}</span>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty-state">No draws recorded.</p>
+                {% endif %}
+            </section>
+
+            <section class="panel">
+                <h3>Tick Events</h3>
+                {% if tick_events %}
+                <ul class="tick-feed">
+                    {% for event in tick_events %}
+                    <li>
+                        <span class="tick-id">Tick {{ event.tick_number }}</span>
+                        <span class="tick-summary">{{ event.events|length }} events recorded • {{ event.timestamp|date:'M j, H:i' }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty-state">No events logged.</p>
+                {% endif %}
+            </section>
+
+            <section class="panel">
+                <h3>Unlocked Stickers</h3>
+                {% if unlocked_stickers %}
+                <ul class="sticker-list">
+                    {% for sticker in unlocked_stickers %}
+                    <li class="sticker-item">
+                        {% if sticker.url %}
+                        <img src="{{ sticker.url }}" alt="{{ sticker.label }}" class="sticker-icon" width="48" height="48">
+                        {% endif %}
+                        <span class="sticker-chip">{{ sticker.label }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty-state">No stickers unlocked yet.</p>
+                {% endif %}
+            </section>
+        </aside>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,63 @@
+services:
+  web:
+    build: .
+    entrypoint: ./docker-entrypoint.sh
+    command: python scripts/dev_bootstrap_and_run.py --limit ${GEN_QUEUE_LIMIT:-6} --runserver-addr 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app:rw
+    env_file:
+      - .env
+    environment:
+      FORUM_AUTO_TICKS: ${FORUM_AUTO_TICKS:-0}
+      ENABLE_AUTO_TICKS: "1"
+      RUN_MIGRATIONS_ON_START: "1"
+      WAIT_FOR_MIGRATIONS: "0"
+      DJANGO_SETTINGS_MODULE: forum_simulator.settings
+      PYTHONUNBUFFERED: "1"
+
+  worker:
+    build: .
+    entrypoint: ./docker-entrypoint.sh
+    command: bash scripts/queue_loop.sh
+    volumes:
+      - ./:/app:rw
+    env_file:
+      - .env
+    environment:
+      QUEUE_LOOP_LIMIT: "12"
+      QUEUE_LOOP_INTERVAL: "75"
+      RUN_MIGRATIONS_ON_START: "0"
+      WAIT_FOR_MIGRATIONS: "1"
+      DJANGO_SETTINGS_MODULE: forum_simulator.settings
+    depends_on:
+      - web
+
+  scheduler:
+    build: .
+    entrypoint: ./docker-entrypoint.sh
+    command: bash scripts/tick_loop.sh
+    volumes:
+      - ./:/app:rw
+    env_file:
+      - .env
+    environment:
+      TICK_LOOP_INTERVAL: "45"
+      TICK_LOOP_JITTER: "15"
+      RUN_MIGRATIONS_ON_START: "0"
+      WAIT_FOR_MIGRATIONS: "1"
+      DJANGO_SETTINGS_MODULE: forum_simulator.settings
+    depends_on:
+      - web
+
+  manage:
+    build: .
+    entrypoint: ./docker-entrypoint.sh
+    command: python forum_simulator/manage.py help
+    volumes:
+      - ./:/app:rw
+    env_file:
+      - .env
+    environment:
+      DJANGO_SETTINGS_MODULE: forum_simulator.settings

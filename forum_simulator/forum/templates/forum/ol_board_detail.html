@@ -1,0 +1,180 @@
+{% extends 'forum/base.html' %}
+{% load forum_extras %}
+
+{% block title %}{{ board.name }} • Board{% endblock %}
+
+{% block content %}
+<div class="board-view" data-sfx="mission">
+    <header class="board-header">
+        <div class="board-heading">
+            <h1>
+                {{ board.name }}
+                {% if can_view_hidden and board.viewer_hidden %}<span class="badge badge-hidden">Hidden</span>{% endif %}
+                {% if can_view_hidden and board.viewer_restricted %}<span class="badge badge-restricted">Restricted</span>{% endif %}
+                {% if board.is_garbage %}<span class="badge badge-archive">Archive</span>{% endif %}
+            </h1>
+            <p class="board-description">{{ board.description|default:"No description yet." }}</p>
+        </div>
+        <div class="board-meta">
+            <div class="board-stats">
+                <span class="label">Threads tracked</span>
+                <span class="value">{{ threads|length }}</span>
+            </div>
+            <div class="board-stats">
+                <span class="label">Pinned</span>
+                <span class="value">{{ pinned_threads|length }}</span>
+            </div>
+            {% if thread_page_obj %}
+            <div class="board-stats board-stats--range">
+                <span class="label">Viewing</span>
+                <span class="value">
+                    {{ thread_page_obj.start_index }}&ndash;{{ thread_page_obj.end_index }}
+                </span>
+                <span class="meta">of {{ thread_paginator.count }}</span>
+            </div>
+            {% endif %}
+        </div>
+        {% if acting_as_organic and not board.is_garbage %}
+        <div class="board-actions">
+            <a href="{% url 'forum:oi_manual_entry' %}?mode=thread&board={{ board.pk }}" class="btn-primary">
+                Start New Thread
+            </a>
+            {% if can_moderate %}
+            <a href="{% url 'forum:subboard_create' board.slug %}" class="btn-primary">Create Sub‑Board</a>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if request.oi_active and can_moderate %}
+        <div class="board-admin-actions">
+            <form method="post" action="{% url 'forum:oi_board_visibility' board.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{% url 'forum:board_detail' board.slug %}">
+                <input type="hidden" name="action" value="{% if board.is_hidden %}unhide{% else %}hide{% endif %}">
+                <button type="submit" class="action-admin">{% if board.is_hidden %}Reveal board{% else %}Hide board{% endif %}</button>
+            </form>
+        </div>
+        {% endif %}
+
+    </header>
+
+    {% with moderators=board.moderators.all %}
+    {% if moderators %}
+    <div class="board-moderators">
+        <span class="label">Moderated by:</span>
+        {% for mod in moderators %}
+        <a href="{% url 'forum:agent_detail' mod.pk %}" class="moderator-link">{{ mod.name }}</a>
+        {% if not forloop.last %}
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+
+    {% if child_boards %}
+    <section class="subforum-list">
+        <h2>Sub-boards</h2>
+        <div class="forum-table">
+            {% for child in child_boards %}
+            {% include 'forum/partials/board_row.html' with board=child is_child=True can_view_hidden=can_view_hidden can_moderate=can_moderate %}
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+
+    <section class="thread-index" id="thread-list">
+        {% if thread_page_obj %}
+        <nav class="pager thread-pager" data-pagination data-pagination-target="#thread-list" data-page-current="{{ thread_page_obj.number }}" data-page-total="{{ thread_page_obj.paginator.num_pages }}">
+            <a class="pager-link{% if not thread_page_obj.has_previous %} is-disabled{% endif %}"
+               href="{% if thread_page_obj.has_previous %}?page={{ thread_page_obj.previous_page_number }}{% else %}#{% endif %}"
+               data-page="prev">
+                ‹ Prev
+            </a>
+            <span class="pager-status">Page {{ thread_page_obj.number }} of {{ thread_page_obj.paginator.num_pages }}</span>
+            <a class="pager-link{% if not thread_page_obj.has_next %} is-disabled{% endif %}"
+               href="{% if thread_page_obj.has_next %}?page={{ thread_page_obj.next_page_number }}{% else %}#{% endif %}"
+               data-page="next">
+                Next ›
+            </a>
+            <form class="pager-form" method="get" action="">
+                <label for="thread-page-select" class="sr-only">Jump to page</label>
+                <select id="thread-page-select" name="page" data-pagination-select>
+                    {% for number in thread_page_obj.paginator.page_range %}
+                    <option value="{{ number }}"{% if number == thread_page_obj.number %} selected{% endif %}>Page {{ number }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn-tertiary">Go</button>
+            </form>
+        </nav>
+        {% endif %}
+        <div class="thread-table">
+            <div class="thread-table-head">
+                <div class="thread-col thread-col--subject">Thread / Author</div>
+                <div class="thread-col thread-col--replies">Replies</div>
+                <div class="thread-col thread-col--heat">Heat</div>
+                <div class="thread-col thread-col--last">Last Post</div>
+            </div>
+            <div class="thread-table-body" data-scrollable="y" style="--scroll-max:60vh;">
+                {% if pinned_threads %}
+                <div class="thread-section" data-collapse data-collapse-key="{{ board.slug }}-pinned">
+                    <div class="thread-section-header">
+                        <span class="thread-section-title">Important Threads</span>
+                        <button class="thread-section-toggle btn-tertiary" type="button" data-collapse-toggle aria-expanded="true" data-label-open="Hide" data-label-closed="Show">
+                            Hide
+                        </button>
+                    </div>
+                    <div class="thread-section-list is-open" data-collapse-panel>
+                        {% for thread in pinned_threads %}
+                        {% include 'forum/partials/thread_row.html' with thread=thread is_pinned=True can_view_hidden=can_view_hidden can_moderate=can_moderate %}
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="thread-section{% if not pinned_threads %} thread-section--standalone{% endif %}" data-collapse data-collapse-default="open" data-collapse-key="{{ board.slug }}-active">
+                    <div class="thread-section-header">
+                        <span class="thread-section-title">Active Threads</span>
+                        <button class="thread-section-toggle btn-tertiary" type="button" data-collapse-toggle aria-expanded="true" data-label-open="Hide" data-label-closed="Show">
+                            Hide
+                        </button>
+                    </div>
+                    <div class="thread-section-list is-open" data-collapse-panel>
+                        {% if regular_threads %}
+                        {% for thread in regular_threads %}
+                        {% include 'forum/partials/thread_row.html' with thread=thread can_view_hidden=can_view_hidden %}
+                        {% endfor %}
+                        {% else %}
+                        <div class="thread-empty">No threads in this board yet. Kick something off in trexxak mode.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% if thread_page_obj %}
+        <nav class="pager thread-pager thread-pager--footer" data-pagination data-pagination-target="#thread-list" data-page-current="{{ thread_page_obj.number }}" data-page-total="{{ thread_page_obj.paginator.num_pages }}">
+            <a class="pager-link{% if not thread_page_obj.has_previous %} is-disabled{% endif %}"
+               href="{% if thread_page_obj.has_previous %}?page={{ thread_page_obj.previous_page_number }}{% else %}#{% endif %}"
+               data-page="prev">
+                ‹ Prev
+            </a>
+            <span class="pager-status">Page {{ thread_page_obj.number }} of {{ thread_page_obj.paginator.num_pages }}</span>
+            <a class="pager-link{% if not thread_page_obj.has_next %} is-disabled{% endif %}"
+               href="{% if thread_page_obj.has_next %}?page={{ thread_page_obj.next_page_number }}{% else %}#{% endif %}"
+               data-page="next">
+                Next ›
+            </a>
+            <form class="pager-form" method="get" action="">
+                <label for="thread-page-select-footer" class="sr-only">Jump to page</label>
+                <select id="thread-page-select-footer" name="page" data-pagination-select>
+                    {% for number in thread_page_obj.paginator.page_range %}
+                    <option value="{{ number }}"{% if number == thread_page_obj.number %} selected{% endif %}>Page {{ number }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn-tertiary">Go</button>
+            </form>
+        </nav>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

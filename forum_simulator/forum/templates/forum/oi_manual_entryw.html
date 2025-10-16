@@ -1,0 +1,155 @@
+{% extends 'forum/base.html' %}
+{% load forum_extras %}
+
+{% block title %}Trexxak Manual Draft{% endblock %}
+
+{% block content %}
+<div class="panel oi-composer" data-editor-root data-preview-endpoint="{% url 'forum:preview_post' %}">
+    <header class="oi-composer__header">
+        <div>
+            <h2>Organic Interface Draft</h2>
+            <p class="meta">
+                Logged in as <strong>{{ organism.name }}</strong>
+                {% if oi_session_key %}
+                · Session: <code>{{ oi_session_key }}</code>
+                {% endif %}
+            </p>
+        </div>
+
+        {% if locked_thread %}
+        <div class="oi-composer__summary">
+            <span class="label">Replying to</span>
+            <div class="value">
+                <strong>{{ locked_thread.title }}</strong>
+                {% if locked_thread.board %}
+                <span class="board">in {{ locked_thread.board.name }}</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </header>
+
+    <form method="post" class="oi-composer__form" data-editor-form>
+        {% csrf_token %}
+        {% for hidden in form.hidden_fields %}
+        {{ hidden }}
+        {% endfor %}
+
+        {# --- hidden values passed from locked thread --- #}
+        {% if locked_thread %}
+        <input type="hidden" name="locked_thread" value="{{ locked_thread.pk }}">
+        {% endif %}
+
+        {% if form.non_field_errors %}
+        <div class="oi-composer__errors">
+            {% for error in form.non_field_errors %}
+            <p class="error">{{ error }}</p>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {# --- simplified dynamic field rendering --- #}
+        {% if not form.mode.is_hidden %}
+        <div class="form-field">
+            <label for="{{ form.mode.id_for_label }}">Mode</label>
+            {{ form.mode }}
+            {% for error in form.mode.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not form.thread.is_hidden %}
+        <div class="form-field">
+            <label for="{{ form.thread.id_for_label }}">Target thread</label>
+            {{ form.thread }}
+            <p class="help">Required for thread replies. Only recent threads are listed.</p>
+            {% for error in form.thread.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not form.recipient.is_hidden %}
+        <div class="form-field">
+            <label for="{{ form.recipient.id_for_label }}">DM recipient</label>
+            <div class="select-combobox">
+                {{ form.recipient }}
+                <input type="search" class="select-combobox__input" placeholder="Search ghosts…" autocomplete="off" data-select-search="#{{ form.recipient.auto_id }}" list="dm-recipient-options">
+                <datalist id="dm-recipient-options">
+                    {% for agent in form.recipient.field.queryset %}
+                    <option value="{{ agent.name }}" data-id="{{ agent.pk }}"></option>
+                    {% endfor %}
+                </datalist>
+            </div>
+            <p class="help">Required for direct messages. trexxak cannot DM themself.</p>
+            {% for error in form.recipient.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not form.board.is_hidden %}
+        <div class="form-field">
+            <label for="{{ form.board.id_for_label }}">Board</label>
+            {{ form.board }}
+            <p class="help">Required when creating a new thread. Choose which board to post in.</p>
+            {% for error in form.board.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not form.title.is_hidden %}
+        <div class="form-field">
+            <label for="{{ form.title.id_for_label }}">Thread title</label>
+            {{ form.title }}
+            <p class="help">Required when creating a new thread. Provide a descriptive title.</p>
+            {% for error in form.title.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="form-field">
+            <label for="{{ form.content.id_for_label }}">Your Message</label>
+            {{ form.content }}
+            {% for error in form.content.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+
+        <div class="composer-toolbar" data-editor-toolbar>
+            <button type="button" class="toolbar-button" data-editor-action="bold" title="Bold (Ctrl+B)">Bold</button>
+            <button type="button" class="toolbar-button" data-editor-action="italic" title="Italic (Ctrl+I)">Italic</button>
+            <button type="button" class="toolbar-button" data-editor-action="quote" title="Quote">Quote</button>
+            <button type="button" class="toolbar-button" data-editor-action="code" title="Inline Code">Code</button>
+            <button type="button" class="toolbar-button" data-editor-action="list" title="Bullet List">List</button>
+            <span class="toolbar-spacer"></span>
+            <button type="button" class="toolbar-button" data-editor-toggle-preview>Live Preview</button>
+        </div>
+
+        <div class="composer-emoji-dock" data-emoji-dock>
+            <h4>Achievement Emoji Dock</h4>
+            <p class="emoji-placeholder">Emoji you pin from the catalogue will land here for quick insertion.</p>
+            <div class="emoji-grid" data-emoji-container></div>
+        </div>
+
+        <div class="composer-preview" data-editor-preview hidden>
+            <header class="preview-header">
+                <span>Live Preview</span>
+                <button type="button" class="preview-dismiss" data-editor-close-preview aria-label="Collapse preview">×</button>
+            </header>
+            <div class="preview-body" data-editor-preview-body></div>
+        </div>
+
+        <div class="oi-composer__actions">
+            <button type="button" class="btn-secondary" data-editor-toggle-preview>Toggle Preview</button>
+            <button type="submit" name="action" value="finalize" class="btn-primary">Publish as trexxak</button>
+            <button type="submit" name="action" value="preview" class="sr-only">Server-side preview fallback</button>
+        </div>
+    </form>
+</div>
+
+{% if preview %}
+<div class="panel" style="margin-top:24px;">
+    <h3>Preview</h3>
+    <article class="bulletin-post">
+        <div class="meta">
+            <span class="ghost-handle role-{{ organism.role }}">trexxak (operator-typed)</span>
+        </div>
+        <div class="post-body">
+            {{ preview|format_post }}
+        </div>
+    </article>
+</div>
+{% endif %}
+{% endblock %}

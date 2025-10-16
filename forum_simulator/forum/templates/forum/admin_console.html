@@ -1,0 +1,124 @@
+{% extends 'forum/base.html' %}
+{% load forum_extras %}
+
+{% block title %}Admin Console{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h2>Runtime Settings</h2>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-field">
+            {{ form.api_daily_limit.label_tag }}
+            {{ form.api_daily_limit }}
+            {% for error in form.api_daily_limit.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+            {{ form.thread_watch_window.label_tag }}
+            {{ form.thread_watch_window }}
+            {% for error in form.thread_watch_window.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+        <button type="submit" class="btn primary">Save Settings</button>
+    </form>
+</div>
+
+<div class="panel" style="margin-top:24px;">
+    <h2>Mission Overview</h2>
+    {% if mission_overview %}
+        <ul>
+            {% for mission in mission_overview %}
+            <li>
+                <strong>{{ mission.name }}</strong>
+                <div class="meta">Status: {{ mission.status|title }} &middot; Progress {{ mission.progress|floatformat:1 }} / {{ mission.target|floatformat:1 }}</div>
+                {% if mission.metadata.reward_label %}
+                <div class="meta">Reward: {{ mission.metadata.reward_label }}{% if mission.metadata.reward_unlocked %} (unlocked){% endif %}</div>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No missions tracked.</p>
+    {% endif %}
+</div>
+
+<div class="panel" style="margin-top:24px;">
+    <h2>API Usage</h2>
+    <p class="meta">Today: {{ today_usage }} / {{ api_limit }} requests · Lifetime: {{ usage_total }}</p>
+    {% if usage_rows %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Day</th>
+                    <th>Requests</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in usage_rows %}
+                    <tr>
+                        <td>{{ row.day }}</td>
+                        <td>{{ row.request_count }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No usage recorded.</p>
+    {% endif %}
+</div>
+
+<div class="panel" style="margin-top:24px;">
+    <h2>Watcher Snapshot</h2>
+    <p class="meta">Active window: {{ watcher_window }} seconds · Active sessions tracked: {{ watcher_sessions }}</p>
+</div>
+
+<div class="panel" style="margin-top:24px;">
+    <h2>Ticket Summary</h2>
+    {% if ticket_summary %}
+        <ul>
+            {% for item in ticket_summary %}
+                <li>{{ item.status|title|replace:"_, " }}: {{ item.total }}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No tickets yet.</p>
+    {% endif %}
+</div>
+
+<div class="panel" style="margin-top:24px;">
+    <h2>Organic Interface Audit</h2>
+    {% if oi_logs %}
+        <table>
+            <thead>
+                <tr>
+                    <th>When</th>
+                    <th>Action</th>
+                    <th>Session</th>
+                    <th>IP</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in oi_logs %}
+                    <tr>
+                        <td>{{ log.created_at|date:'Y-m-d H:i:s' }}</td>
+                        <td>{{ log.action }}</td>
+                        <td><code>{{ log.session_key|default:'-' }}</code></td>
+                        <td>{{ log.ip_address|default:'-' }}</td>
+                        <td>
+                            {% if log.thread %}
+                                Thread <a href="{% url 'forum:thread_detail' log.thread.pk %}">{{ log.thread.title }}</a>
+                            {% elif log.recipient %}
+                                DM to <a href="{% url 'forum:agent_detail' log.recipient.pk %}">{{ log.recipient.name }}</a>
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No organic activity recorded yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,54 @@
+# Databases
+*.sqlite
+*.sqlite3
+*.db
+*-journal
+
+# Environment files (dotenv and variants)
+.env
+*.env
+.env.*
+
+# Python cache and compiled artifacts
+__pycache__/
+**/__pycache__/
+*.py[codp]
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+*.tiff
+*.svg
+*.ico
+
+# Audio
+*.mp3
+*.wav
+*.ogg
+*.flac
+*.m4a
+*.aac
+
+# Video
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.flv
+*.wmv
+*.3gp
+
+# Editor/OS files
+.DS_Store
+Thumbs.db
+
+# Virtual environment
+.venv/
+
+# Local settings
+local_settings.py

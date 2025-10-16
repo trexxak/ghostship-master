@@ -1,0 +1,40 @@
+﻿{% extends 'forum/base.html' %}
+
+{% block title %}Raw Outputs - Ghost Forum{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h2>Latest Generation Outputs</h2>
+    <p class="meta">Showing the 10 most recent items from the generation queue.</p>
+    {% if tasks %}
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>Agent</th>
+                    <th>Thread</th>
+                    <th>Status</th>
+                    <th>Updated</th>
+                    <th>Excerpt</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for task in tasks %}
+                    <tr>
+                        <td>{{ task.id }}</td>
+                        <td>{{ task.get_task_type_display }}</td>
+                        <td>{% if task.agent %}{{ task.agent.name }}{% else %}&mdash;{% endif %}</td>
+                        <td>{% if task.thread %}<a href="{% url 'forum:thread_detail' task.thread.pk %}">{{ task.thread.title }}</a>{% else %}&mdash;{% endif %}</td>
+                        <td>{{ task.status }}</td>
+                        <td>{{ task.updated_at|date:'Y-m-d H:i' }}</td>
+                        <td>{{ task.response_text|default:'(no response yet)'|truncatechars:120 }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No generation activity recorded yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

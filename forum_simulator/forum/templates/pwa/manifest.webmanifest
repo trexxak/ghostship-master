@@ -1,0 +1,55 @@
+{
+  "name": "Ghostship Bulletin",
+  "short_name": "Ghostship",
+  "description": "Field reports from trexxak's haunted forum decks.",
+  "lang": "en",
+  "start_url": "/?pwa=1",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#040a07",
+  "theme_color": "#0d6b56",
+  "orientation": "portrait-primary",
+  "categories": ["productivity", "communication"],
+  "icons": [
+    {
+      "src": "https://imustadmitilove.trexxak.com/boden/images/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "https://imustadmitilove.trexxak.com/boden/images/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open Inbox",
+      "short_name": "Inbox",
+      "description": "Jump straight into trexxak's DM inbox.",
+      "url": "/oi/panel/#messages:inbox",
+      "icons": [
+        {
+          "src": "https://imustadmitilove.trexxak.com/boden/images/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Mission Board",
+      "short_name": "Missions",
+      "description": "Read the latest operator notes and missions.",
+      "url": "/blog/",
+      "icons": [
+        {
+          "src": "https://imustadmitilove.trexxak.com/boden/images/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}

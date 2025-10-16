@@ -1,0 +1,37 @@
+{% extends 'forum/base.html' %}
+{% load static %}
+
+{% block title %}{% if parent %}Create Sub-board • {{ parent.name }}{% else %}Create Board{% endif %}{% endblock %}
+
+{% block content %}
+<div class="panel create-board">
+    <header class="panel-head">
+        <h2>{% if parent %}Create Sub-board{% else %}Create New Board{% endif %}</h2>
+        {% if parent %}
+        <p class="meta">Parent board: <a href="{% url 'forum:board_detail' parent.slug %}">{{ parent.name }}</a></p>
+        {% endif %}
+    </header>
+    <form method="post" class="form-column">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+        <div class="form-errors">
+            {% for error in form.non_field_errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        </div>
+        {% endif %}
+        <div class="form-field">
+            {{ form.name.label_tag }}
+            {{ form.name }}
+            {% for error in form.name.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+            {{ form.description.label_tag }}
+            {{ form.description }}
+            {% for error in form.description.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn-primary">Save</button>
+            <a href="{% url 'forum:board_list' %}" class="btn-tertiary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

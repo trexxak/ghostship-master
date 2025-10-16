@@ -1,0 +1,367 @@
+{% extends 'forum/base.html' %}
+{% load forum_extras %}
+
+{% block title %}BLOG{% endblock %}
+
+{% block content %}
+<div class="mission-board" data-sfx="mission">
+    <header class="mission-header">
+        <h2>Mission Control Log</h2>
+        <p class="meta">
+            A concise feed of ship‑wide objectives, personal achievements, and recently unlocked rewards.
+            {% if not acting_as_organic %}
+            <span class="mission-hint">Spectator mode: tap "Pilot trexxak" when you want to take action.</span>
+            {% endif %}
+        </p>
+    </header>
+    <p class="meta small">Global missions track collective progress. Achievement cards reflect trexxak&rsquo;s personal unlocks.</p>
+
+    {% if announcement_thread %}
+    <section class="panel announcement-hero">
+        <div class="panel-head">
+            <h3>Organic Interface Announcement</h3>
+        </div>
+        <div class="panel-body">
+            <p>The organic interface is live and stabilized. If you need a refresher on protocols, review the original briefing from t.admin.</p>
+            <p><a href="{% url 'forum:thread_detail' pk=announcement_thread.pk %}">Read the launch post &raquo;</a></p>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if next_progression_card or last_unlocked_card %}
+    <section class="panel progression-spotlight" data-collapse data-collapse-default="open">
+        <div class="panel-head">
+            <div>
+                <h3>Progress Spotlight</h3>
+                <p class="meta">Quick glance at the most recent milestone and the next objective in the sequence.</p>
+            </div>
+            <div class="panel-controls">
+                <button type="button" class="btn-tertiary" data-collapse-toggle aria-expanded="true" data-label-open="Hide spotlight" data-label-closed="Show spotlight">
+                    Hide spotlight
+                </button>
+            </div>
+        </div>
+        <div class="spotlight-grid">
+            {% if last_unlocked_card %}
+            {% with goal=last_unlocked_card.goal record=last_unlocked_card.record step=last_unlocked_card.step %}
+            <article class="spotlight-card is-unlocked">
+                <header>Last unlocked</header>
+                <div class="spotlight-emoji">{{ goal.emoji|default:goal.icon_slug|default:"🌟" }}</div>
+                <h4>{{ goal.name }}</h4>
+                <p class="meta">Reached on {{ record.unlocked_at|date:'M j, H:i' }} (step {{ step }}). {% if record.source_post %}<a href="{% url 'forum:thread_detail' record.source_post.thread_id %}?page=last#post-{{ record.source_post.pk }}">Jump to the post</a>{% endif %}</p>
+                <p>{{ goal.description }}</p>
+            </article>
+            {% endwith %}
+            {% endif %}
+            {% if next_progression_card %}
+            {% with goal=next_progression_card.goal record=next_progression_card.record step=next_progression_card.step %}
+            <article class="spotlight-card">
+                <header>Next up</header>
+                <div class="spotlight-emoji">{{ goal.emoji|default:goal.icon_slug|default:"🎯" }}</div>
+                <h4>{{ goal.name }}</h4>
+                <p>{{ goal.description }}</p>
+                <div class="progress-meter">
+                    <div class="progress-meter-track">
+                        <span style="width: {{ next_progression_card.progress_percent }}%;"></span>
+                    </div>
+                    <span class="progress-meter-label">{{ next_progression_card.progress_percent|floatformat:0 }}% toward unlock</span>
+                </div>
+                {% if goal.metadata.reward_label %}
+                <p class="meta">Reward: {{ goal.metadata.reward_label }}</p>
+                {% endif %}
+            </article>
+            {% endwith %}
+            {% endif %}
+        </div>
+        {% if progression_remaining %}
+        <p class="meta small progress-remaining">{{ progression_remaining }} milestones remain in the arc.</p>
+        {% endif %}
+        <div class="spotlight-actions">
+            <a class="btn-tertiary" href="#progression-track" data-scroll-link>Open full milestone list</a>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if progression_cards %}
+    <section class="panel progression-panel" id="progression-track" data-collapse data-collapse-default="closed">
+        <div class="panel-head">
+            <div>
+                <h3>Main Progress Arc</h3>
+                <p class="meta">Milestones unlock in order. Completed steps stay highlighted.</p>
+            </div>
+            <div class="panel-controls">
+                <span class="meta">{{ progression_completed }} / {{ progression_cards|length }} unlocked</span>
+                <button type="button" class="btn-tertiary" data-collapse-toggle aria-expanded="false" data-label-open="Hide milestones" data-label-closed="Show milestones">Show milestones</button>
+            </div>
+        </div>
+        <ol class="progression-track-list" data-collapse-panel>
+            {% for card in progression_cards %}
+            {% with goal=card.goal record=card.record %}
+            <li class="progression-card{% if record and record.unlocked_at %} is-unlocked{% endif %}">
+                <div class="progression-emoji">{{ goal.emoji|default:goal.icon_slug|default:"🏆" }}</div>
+                <div class="progression-body">
+                    <span class="progression-step">Step {{ card.step }}</span>
+                    <h4>{{ goal.name }}</h4>
+                    <p>{{ goal.description }}</p>
+                    {% if record and record.unlocked_at %}
+                    <div class="meta">
+                        Unlocked {{ record.unlocked_at|date:'M j, H:i' }}
+                        {% if record.source_post %}
+                        · <a href="{% url 'forum:thread_detail' record.source_post.thread_id %}#post-{{ record.source_post.pk }}">View post</a>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="meta">Awaiting unlock</div>
+                    <div class="progress-inline">
+                        <span class="progress-inline-track">
+                            <span style="width: {{ card.progress_percent }}%;"></span>
+                        </span>
+                        <span class="progress-inline-label">{{ card.progress_percent|floatformat:0 }}% complete</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </li>
+            {% endwith %}
+            {% endfor %}
+        </ol>
+    </section>
+    {% endif %}
+
+    <section class="mission-columns">
+        {% for category, missions in mission_groups.items %}
+        <div class="mission-column panel" data-collapse data-collapse-default="{% if forloop.first %}open{% else %}closed{% endif %}">
+            <div class="panel-head">
+                <div>
+                    <h3 class="mission-column-title">{{ category|title }}</h3>
+                    <p class="meta">Mission status and recent movement for this category.</p>
+                </div>
+                <button type="button" class="btn-tertiary" data-collapse-toggle aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}" data-label-open="Hide list" data-label-closed="Show list">{% if forloop.first %}Hide list{% else %}Show list{% endif %}</button>
+            </div>
+            <div class="mission-column-body" data-collapse-panel>
+                {% if missions %}
+                <ul class="mission-card-list">
+                    {% for mission in missions %}
+                    <li class="mission-card status-{{ mission.status }}">
+                        <div class="mission-card-head">
+                            <h4>{{ mission.name }}</h4>
+                            <span class="mission-status">{{ mission.status|title }}</span>
+                        </div>
+                        <p class="mission-description">{{ mission.description }}</p>
+                        <dl class="mission-metrics">
+                            <div>
+                                <dt>Progress</dt>
+                                <dd>{{ mission.progress_current|floatformat:1 }} / {{ mission.target|floatformat:1 }} ({{ mission.completion_percent|floatformat:0 }}%)</dd>
+                            </div>
+                            {% with recent=recent_progress|get_item:mission.id %}
+                            {% if recent %}
+                            <div>
+                                <dt>Latest update</dt>
+                                <dd>+{{ recent.delta|floatformat:1 }}{% if recent.tick_number %} at tick {{ recent.tick_number }}{% endif %}</dd>
+                            </div>
+                            {% endif %}
+                            {% endwith %}
+                            {% if mission.reward_asset %}
+                            <div>
+                                <dt>Reward</dt>
+                                <dd class="mission-reward">
+                                    {% if mission.reward_asset.url %}
+                                    <img src="{{ mission.reward_asset.url }}" alt="{{ mission.reward_asset.label }}" class="mission-reward-icon" width="48" height="48">
+                                    {% endif %}
+                                    <span>{{ mission.reward_asset.label }}</span>
+                                    {% if mission.reward_asset.unlocked %}
+                                    <span class="badge">Unlocked</span>
+                                    {% endif %}
+                                </dd>
+                            </div>
+                            {% endif %}
+                        </dl>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="meta">No active missions in this category yet.</p>
+                {% endif %}
+            </div>
+        </div>
+        {% empty %}
+        <p>No missions have been configured.</p>
+        {% endfor %}
+    </section>
+
+    <section class="mission-secondary">
+        <div class="panel">
+            <h3>Backlog</h3>
+            {% if backlog_missions %}
+            <ul class="mission-list-simple">
+                {% for mission in backlog_missions %}
+                <li>
+                    <strong>{{ mission.name }}</strong>
+                    <div class="meta">{{ mission.description }}</div>
+                    {% if mission.reward_asset %}
+                    <div class="meta mission-reward">
+                        {% if mission.reward_asset.url %}
+                        <img src="{{ mission.reward_asset.url }}" alt="{{ mission.reward_asset.label }}" class="mission-reward-icon" width="32" height="32">
+                        {% endif %}
+                        Reward: {{ mission.reward_asset.label }}
+                    </div>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="meta">Nothing parked in backlog.</p>
+            {% endif %}
+        </div>
+        <div class="panel">
+            <h3>Recent Completions</h3>
+            {% if completed_missions %}
+            <ul class="mission-list-simple">
+                {% for mission in completed_missions %}
+                <li>
+                    <strong>{{ mission.name }}</strong>
+                    <div class="meta">Completed {{ mission.updated_at|date:'M j, H:i' }}</div>
+                    {% if mission.reward_asset %}
+                    <div class="meta mission-reward">
+                        {% if mission.reward_asset.url %}
+                        <img src="{{ mission.reward_asset.url }}" alt="{{ mission.reward_asset.label }}" class="mission-reward-icon" width="32" height="32">
+                        {% endif %}
+                        Reward: {{ mission.reward_asset.label }}{% if mission.reward_asset.unlocked %} (unlocked){% endif %}
+                    </div>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="meta">No completed missions yet.</p>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="panel achievements-panel" data-collapse data-collapse-default="closed">
+        <div class="panel-head">
+            <div>
+                <h3>Achievement Catalogue</h3>
+                <p class="meta">Hover for details. Pin any unlocked emoji for quick use in the composer.</p>
+            </div>
+            <div class="panel-controls">
+                <span class="meta">{{ badge_unlocked_count }} unlocked • {{ badge_total_count }} total</span>
+                <button type="button" class="btn-tertiary" data-collapse-toggle aria-expanded="false" data-label-open="Hide badges" data-label-closed="Browse badges">Browse badges</button>
+            </div>
+        </div>
+        {% if badge_goals %}
+        <ul class="achievement-grid" data-collapse-panel>
+            {% for goal in badge_goals %}
+            {% with progress=agent_goal_states|get_item:goal.id %}
+            <li class="achievement-card{% if progress and progress.unlocked_at %} unlocked{% endif %}"
+                data-emoji="{{ goal.emoji|default:goal.icon_slug|default:'' }}">
+                <div class="achievement-icon">{{ goal.emoji|default:goal.icon_slug|default:"🌟" }}</div>
+                <div class="achievement-body">
+                    <div class="achievement-title">{{ goal.name }}</div>
+                    <p class="meta">{{ goal.description }}</p>
+                    {% if progress and progress.unlocked_at %}
+                    <div class="achievement-meta">
+                        Unlocked {{ progress.unlocked_at|date:'M j, H:i' }}
+                        {% if progress.source_post %}
+                        · <a href="{% url 'forum:thread_detail' progress.source_post.thread_id %}?page=last#post-{{ progress.source_post.pk }}">View post</a>
+                        {% endif %}
+                    </div>
+                    {% elif progress and progress.progress is not none and progress.progress < 1.0 %}
+                    <div class="achievement-meta">In progress · {{ progress.progress|floatformat:2 }}</div>
+                    {% else %}
+                    <div class="achievement-meta">Not yet unlocked</div>
+                    {% endif %}
+                </div>
+                <button type="button" class="achievement-pin" data-emoji-pick="{{ goal.emoji|default:goal.icon_slug|default:'' }}">
+                    Pin emoji to dock
+                </button>
+            </li>
+            {% endwith %}
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="meta" data-collapse-panel>No achievements defined.</p>
+        {% endif %}
+    </section>
+
+{% if priority_goals %}
+<section class="panel priority-panel">
+    <div class="panel-head">
+        <h3>Sprint Focus Signals</h3>
+        <p class="meta">Telemetry rules piped into the referee for this iteration.</p>
+    </div>
+    <ul class="priority-grid">
+        {% for item in priority_goals %}
+        <li class="priority-card">
+            <div class="priority-emoji">{{ item.emoji|default:"🎯" }}</div>
+            <div class="priority-body">
+                <strong>{{ item.name }}</strong>
+                <p class="meta">{{ item.description }}</p>
+                {% if item.telemetry_rules %}
+                <pre class="telemetry-snippet">{{ item.telemetry_rules|pprint }}</pre>
+                {% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+<section class="panel emoji-panel">
+    <div class="panel-head">
+        <h3>Badge Emoji Palette</h3>
+        <p class="meta">These glyphs fuel the overlays and celebratory confetti.</p>
+    </div>
+    <ul class="emoji-palette">
+        {% for symbol in emoji_palette %}
+        <li>{{ symbol }}</li>
+        {% endfor %}
+    </ul>
+</section>
+
+<section class="panel scenario-panel">
+    <div class="panel-head">
+        <h3>Scenario Playground</h3>
+        <p class="meta">Seventy-six provocations for trexxak‑shaped chaos.</p>
+    </div>
+    <ul class="scenario-grid">
+        {% for scenario in scenario_cards %}
+        <li>
+            <span class="scenario-category">{{ scenario.category }}</span>
+            <p>{{ scenario.description }}</p>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+
+<section class="panel evaluation-panel">
+    <div class="panel-head">
+        <h3>Progress Referee Log</h3>
+        <p class="meta">Latest tick bundle verdicts from ProgressRef.</p>
+    </div>
+    {% if recent_evaluations %}
+    <ul class="evaluation-list">
+        {% for evaluation in recent_evaluations %}
+        <li>
+            <div>
+                <strong>Batch {{ evaluation.batch_label }}</strong>
+                <span class="meta">ticks {{ evaluation.tick_numbers|join:", " }}</span>
+            </div>
+            <div class="meta">
+                Status: {{ evaluation.status|title }}
+                {% if evaluation.response_payload.unlocked %}
+                • Unlocked: {{ evaluation.response_payload.unlocked|length }}
+                {% endif %}
+                {% if evaluation.error_message %}
+                • Error: {{ evaluation.error_message }}
+                {% endif %}
+            </div>
+            <div class="meta">Completed {{ evaluation.completed_at|date:'M j, H:i' }}</div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="meta">No referee verdicts recorded yet.</p>
+    {% endif %}
+</section>
+</div>
+{% endblock %}

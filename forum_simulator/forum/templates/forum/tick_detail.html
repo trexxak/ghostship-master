@@ -1,0 +1,49 @@
+﻿{% extends 'forum/base.html' %}
+
+{% block title %}Tick {{ tick.tick_number }} Detail{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h2>Tick {{ tick.tick_number }}</h2>
+    <p class="meta">{{ tick.timestamp|date:'Y-m-d H:i:s' }}</p>
+    {{ tick.events|json_script:'tick-events' }}
+    <div id="tick-events-container"></div>
+</div>
+<script>
+    (function() {
+        const dataEl = document.getElementById('tick-events');
+        const container = document.getElementById('tick-events-container');
+        if (!dataEl || !container) {
+            return;
+        }
+        try {
+            const events = JSON.parse(dataEl.textContent);
+            events.forEach((event) => {
+                const block = document.createElement('div');
+                block.style.background = '#181818';
+                block.style.padding = '12px';
+                block.style.marginBottom = '12px';
+                block.style.borderRadius = '6px';
+
+                const heading = document.createElement('div');
+                heading.style.fontWeight = 'bold';
+                heading.textContent = event.type || 'event';
+                block.appendChild(heading);
+
+                const pre = document.createElement('pre');
+                pre.style.whiteSpace = 'pre-wrap';
+                pre.style.background = '#111';
+                pre.style.padding = '8px';
+                pre.style.borderRadius = '4px';
+                pre.textContent = JSON.stringify(event, null, 2);
+                block.appendChild(pre);
+
+                container.appendChild(block);
+            });
+        } catch (error) {
+            container.textContent = 'Failed to render tick events.';
+            console.error('tick-detail', error);
+        }
+    })();
+</script>
+{% endblock %}

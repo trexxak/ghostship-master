@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}Ghost Forum Observatory{% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% load static %}
+
+  <!-- core styles/scripts -->
+  <link rel="stylesheet" href="{% static 'forum/styles.css' %}?v={{ static_version }}">
+  <link rel="icon" href="https://imustadmitilove.trexxak.com/boden/images/favicon.ico" sizes="48x48">
+  <link rel="icon" type="image/png" sizes="32x32" href="https://imustadmitilove.trexxak.com/boden/images/icon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="https://imustadmitilove.trexxak.com/boden/images/icon-16x16.png">
+  <link rel="apple-touch-icon" href="https://imustadmitilove.trexxak.com/boden/images/icon-192x192.png">
+  <link rel="manifest" href="{% url 'forum:manifest' %}">
+  <meta name="theme-color" content="#004d56">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+
+  <!-- progress overlays CSS -->
+  <link rel="stylesheet" href="{% static 'css/progress_overlays.css' %}?v={{ static_version }}">
+
+  <!-- hook for pages to add more <head> stuff -->
+  {% block extra_head %}{% endblock %}
+
+  <script>
+    window.__swOptions = { path: "{% url 'forum:service_worker' %}", scope: "/" };
+  </script>
+  <script src="{% static 'forum/ui.js' %}?v={{ static_version }}" defer></script>
+</head>
+
+<body class="theme-midnight{% if acting_as_organic %} theme-midnight--oi{% endif %}"
+      data-oi-active="{% if acting_as_organic %}true{% else %}false{% endif %}">
+  <div class="achievement-toast-container" data-toast-container></div>
+  <div class="ui-toast-stack" data-ui-toast></div>
+  <div class="achievement-ticker" data-ticker hidden>
+    <button type="button" class="ticker-close" data-ticker-dismiss aria-label="Dismiss ticker">×</button>
+    <div class="ticker-items" data-ticker-items></div>
+  </div>
+
+  {{ progress_toasts|json_script:"progress-toasts-data" }}
+  {{ progress_ticker|json_script:"progress-ticker-data" }}
+
+  <header class="masthead">
+    <div class="masthead-banner">
+      <a class="masthead-emblem" href="{% url 'forum:board_list' %}">
+        <span class="logo-kanji" aria-hidden="true">亡<br>舟</span>
+        <span class="logo-word">Ghostship</span>
+        <span class="logo-word">Bulletin</span>
+      </a>
+      <div class="masthead-subtitle">
+        <p class="masthead-tagline">
+          Field reports from the haunted decks • Sim tick {{ latest_tick_number|default:"—" }}
+        </p>
+        <p class="masthead-microcopy">灯りのない港へようこそ。</p>
+        <p class="masthead-clock">Current shiptime: {% now 'M j, H:i' %}</p>
+      </div>
+    </div>
+    <div class="masthead-bar">
+      <nav class="primary-nav">
+        {% if acting_as_organic %}
+          <a href="{% url 'forum:board_list' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'board_list' %}is-active{% endif %}">Boards</a>
+          <a href="{% url 'forum:who' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'who' %}is-active{% endif %}">Presence&nbsp;Map</a>
+          <a href="{% url 'forum:oi_control_panel' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'oi_control_panel' %}is-active{% endif %}">Control&nbsp;Panel</a>
+        {% else %}
+          <a href="{% url 'forum:dashboard' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}">Dashboard</a>
+          <a href="{% url 'forum:board_list' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'board_list' %}is-active{% endif %}">Boards</a>
+          <a href="{% url 'forum:who' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'who' %}is-active{% endif %}">Presence&nbsp;Map</a>
+          <a href="{% url 'forum:oracle_log' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'oracle_log' %}is-active{% endif %}">Oracle&nbsp;Draws</a>
+          <a href="{% url 'forum:agent_list' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'agent_list' %}is-active{% endif %}">Ghost&nbsp;Roster</a>
+          <a href="{% url 'forum:mission_board' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'mission_board' %}is-active{% endif %}">BLOG</a>
+        {% endif %}
+      </nav>
+
+      <div class="masthead-controls">
+        <button type="button" class="sw-refresh" data-sw-refresh hidden>Refresh available</button>
+
+        {% if acting_as_organic %}
+        <div class="notification-center" data-oi-notification>
+          <button type="button" class="notification-bell" data-notification-toggle aria-expanded="false" aria-label="Open notifications">
+            <span class="notification-icon">🔔</span>
+            <span class="notification-count" data-notification-count hidden>0</span>
+          </button>
+          <div class="notification-panel" data-notification-panel hidden>
+            <div class="notification-header">
+              <span>Notifications</span>
+              <button type="button" class="notification-clear" data-notification-clear>Mark read</button>
+            </div>
+            <div class="notification-list" data-notification-list>
+              <p class="notification-empty">No notifications yet.</p>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="oi-toggle">
+          {% if acting_as_organic %}
+          <form method="post" action="{% url 'forum:oi_disconnect' %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="oi-button active">Leave trexxak mode</button>
+          </form>
+          {% else %}
+          <form method="post" action="{% url 'forum:oi_connect' %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="oi-button">Pilot trexxak</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-wrapper">
+    {% if messages %}
+      <div class="messages">
+        {% for message in messages %}
+          <div class="message {{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="page-shell">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <!-- progress overlays partial + JS -->
+  {% include "forum/partials/progress_overlays.html" %}
+  <script src="{% static 'js/progress_overlays.js' %}?v={{ static_version }}"></script>
+  <script>
+    // Jam-friendly milestones (quicker pops)
+    window.ProgressHUD && window.ProgressHUD.init({
+      milestones: {
+        threads: [1,2,3,5,8],
+        replies: [3,6,12,24],
+        reports: [1,2,3,5]
+      }
+    });
+  </script>
+
+  <!-- hook for pages to push scripts at end of body -->
+  {% block extra_body_end %}{% endblock %}
+</body>
+</html>

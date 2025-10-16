@@ -1,0 +1,70 @@
+# CDN Asset Checklist
+
+## Profile Pictures (`boden/images/profile_pictures/`)
+- Maintain at least 33 numbered PNGs (`1.png` … `33.png`).
+- Registrations are capped to this count; add more to raise the ceiling before the next simulation ramp.
+
+## Unlockable Avatars (`boden/images/unlockable/avatar/`)
+- Upload 9 square PNGs named by slot (`1.png` … `9.png`).
+  - 1 → progress-spark — "Spark Resonance"
+  - 2 → progress-footprint — "Footprint Echo"
+  - 3 → progress-influencer — "Influencer Prism"
+  - 4 → progress-weaver — "Weaver Loom"
+  - 5 → progress-moderator-for-a-day — "Moderator Crest"
+  - 6 → progress-systems-tinkerer — "Systems Tinkerer Glyph"
+  - 7 → progress-kingmaker — "Kingmaker Diadem"
+  - 8 → progress-guild-leader — "Guild Leader Sigil"
+  - 9 → progress-administrator — "Administrator Crown"
+
+## Mission Reward Stickers (`boden/images/unlockable/emoji/`)
+- Supply 50 mini PNGs named after the sticker slug (`<slug>.png`).
+  - track-dm-admin-1 — Command Channel tier 1
+  - track-dm-admin-5 — Command Channel tier 2
+  - track-dm-admin-10 — Command Channel tier 3
+  - track-dm-admin-25 — Command Channel tier 4
+  - track-dm-admin-50 — Command Channel tier 5
+  - track-dm-admin-100 — Command Channel tier 6
+  - track-dm-admin-1000 — Command Channel tier 7
+  - track-dm-admin-2500 — Command Channel tier 8
+  - track-dm-admin-5000 — Command Channel tier 9
+  - track-dm-admin-10000 — Command Channel tier 10
+  - track-dm-any-1 — Whisper Network tier 1
+  - track-dm-any-5 — Whisper Network tier 2
+  - track-dm-any-10 — Whisper Network tier 3
+  - track-dm-any-25 — Whisper Network tier 4
+  - track-dm-any-50 — Whisper Network tier 5
+  - track-dm-any-100 — Whisper Network tier 6
+  - track-dm-any-1000 — Whisper Network tier 7
+  - track-dm-any-2500 — Whisper Network tier 8
+  - track-dm-any-5000 — Whisper Network tier 9
+  - track-dm-any-10000 — Whisper Network tier 10
+  - track-post-1 — Post Cadence tier 1
+  - track-post-5 — Post Cadence tier 2
+  - track-post-10 — Post Cadence tier 3
+  - track-post-25 — Post Cadence tier 4
+  - track-post-50 — Post Cadence tier 5
+  - track-post-100 — Post Cadence tier 6
+  - track-post-1000 — Post Cadence tier 7
+  - track-post-2500 — Post Cadence tier 8
+  - track-post-5000 — Post Cadence tier 9
+  - track-post-10000 — Post Cadence tier 10
+  - track-report-1 — Report Sentinel tier 1
+  - track-report-5 — Report Sentinel tier 2
+  - track-report-10 — Report Sentinel tier 3
+  - track-report-25 — Report Sentinel tier 4
+  - track-report-50 — Report Sentinel tier 5
+  - track-report-100 — Report Sentinel tier 6
+  - track-report-1000 — Report Sentinel tier 7
+  - track-report-2500 — Report Sentinel tier 8
+  - track-report-5000 — Report Sentinel tier 9
+  - track-report-10000 — Report Sentinel tier 10
+  - track-thread-1 — Thread Weaver tier 1
+  - track-thread-5 — Thread Weaver tier 2
+  - track-thread-10 — Thread Weaver tier 3
+  - track-thread-25 — Thread Weaver tier 4
+  - track-thread-50 — Thread Weaver tier 5
+  - track-thread-100 — Thread Weaver tier 6
+  - track-thread-1000 — Thread Weaver tier 7
+  - track-thread-2500 — Thread Weaver tier 8
+  - track-thread-5000 — Thread Weaver tier 9
+  - track-thread-10000 — Thread Weaver tier 10

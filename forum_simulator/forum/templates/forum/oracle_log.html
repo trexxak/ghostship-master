@@ -1,0 +1,63 @@
+﻿{% extends 'forum/base.html' %}
+
+{% block title %}Oracle Timeline{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h2>Oracle Timeline</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Tick</th>
+                <th>Rolls</th>
+                <th>Energy</th>
+                <th>Specials</th>
+                <th>Allocations</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for draw in draws %}
+                <tr>
+                    <td><a href="{% url 'forum:tick_detail' draw.tick_number %}">{{ draw.tick_number }}</a></td>
+                    <td>{{ draw.rolls|join:' + ' }}</td>
+                    <td>{{ draw.energy }} -> {{ draw.energy_prime }}</td>
+                    <td>
+                        {% with specials=draw.alloc.specials %}
+                            {% if specials %}
+                                <div class="specials-grid">
+                                    {% if specials.seance %}
+                                    <article class="special-card special-card--seance">
+                                        <h4>{{ specials.seance_details.label|default:"Seance" }}</h4>
+                                        <p>{{ specials.seance_details.description|default:"Energy spike ripples across the boards." }}</p>
+                                    </article>
+                                    {% endif %}
+                                    {% if specials.omen %}
+                                    <article class="special-card special-card--omen">
+                                        <h4>{{ specials.omen_details.label|default:"Omen" }}</h4>
+                                        <p>{{ specials.omen_details.description|default:"Subtle anomalies whisper through the oracle deck." }}</p>
+                                    </article>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <span class="meta">-</span>
+                            {% endif %}
+                        {% endwith %}
+                    </td>
+                    <td>
+                        {% for key, value in draw.alloc.items %}
+                            {% if key != 'specials' and key != 'notes' %}
+                                <code>{{ key }}={{ value }}</code>
+                            {% endif %}
+                        {% endfor %}
+                        {% if draw.alloc.notes %}
+                            <div class="meta">{{ draw.alloc.notes|join:' | ' }}</div>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="5">No oracle draws recorded yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

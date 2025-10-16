@@ -1,0 +1,100 @@
+{% extends 'forum/base.html' %}
+
+{% block title %}Data Hygiene{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h2>Orphaned Threads</h2>
+    {% if orphan_threads %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for thread in orphan_threads %}
+                <tr>
+                    <td><a href="{% url 'forum:thread_detail' thread.pk %}">{{ thread.title }}</a></td>
+                    <td>{{ thread.author.name }}</td>
+                    <td>{{ thread.created_at|date:'Y-m-d H:i' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <form method="post" style="margin-top:16px;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="assign_orphans">
+            <button type="submit" class="btn primary">Tuck orphans into the archive</button>
+        </form>
+    {% else %}
+        <p>No orphaned threads hanging in limbo.</p>
+    {% endif %}
+</div>
+
+<div class="panel" style="margin-top:24px;">
+    <h2>Stagnant Missions</h2>
+    {% if empty_missions %}
+        <ul>
+            {% for mission in empty_missions %}
+            <li>
+                <strong>{{ mission.name }}</strong>
+                &mdash; status {{ mission.status }}
+                (progress {{ mission.progress_current|floatformat:2 }} / {{ mission.target|floatformat:2 }})
+            </li>
+            {% endfor %}
+        </ul>
+        <form method="post" style="margin-top:16px;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="reset_empty_missions">
+            <button type="submit" class="btn">Wake sleepy missions</button>
+        </form>
+    {% else %}
+        <p>Every mission is already stretching.</p>
+    {% endif %}
+</div>
+
+<div class="panel" style="margin-top:24px;">
+    <h2>Stale Presence Dusting</h2>
+    <p class="meta">
+        Watch window: {{ window_seconds }}s &middot;
+        Stale cutoff: {{ stale_cutoff|date:'Y-m-d H:i:s' }} &middot;
+        Entries beyond cutoff: {{ stale_watch_count }}
+    </p>
+    {% if stale_watch_samples %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Thread</th>
+                    <th>Session</th>
+                    <th>Last seen</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for watch in stale_watch_samples %}
+                <tr>
+                    <td>
+                        {% if watch.thread %}
+                            <a href="{% url 'forum:thread_detail' watch.thread.pk %}">{{ watch.thread.title }}</a>
+                        {% else %}
+                            (deleted thread)
+                        {% endif %}
+                    </td>
+                    <td><code>{{ watch.session_key }}</code></td>
+                    <td>{{ watch.last_seen|date:'Y-m-d H:i:s' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Presence grid is already dust-free.</p>
+    {% endif %}
+    <form method="post" style="margin-top:16px;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="purge_stale_watches">
+        <button type="submit" class="btn">Sweep stale presence entries</button>
+    </form>
+</div>
+{% endblock %}

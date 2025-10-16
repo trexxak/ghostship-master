@@ -1,0 +1,400 @@
+{% extends 'forum/base.html' %}
+{% load static %}
+
+{% block title %}User Control Panel{% endblock %}
+
+{% block content %}
+<div class="ucp-shell">
+    <aside class="ucp-sidebar">
+        <h1 class="ucp-heading">trexxak control console</h1>
+        <p class="ucp-subheading">Pick a module to surface it. Inbox opens by default so critical whispers never hide.</p>
+        <nav class="ucp-nav" aria-label="Control panel sections">
+            <div class="ucp-nav-group" data-group="messages">
+                <span class="ucp-nav-label">Messages</span>
+                <button type="button" class="ucp-nav-button is-active" data-panel-target="messages:inbox">Inbox</button>
+                <button type="button" class="ucp-nav-button" data-panel-target="messages:outbox">Outbox</button>
+                <button type="button" class="ucp-nav-button" data-panel-target="messages:compose">Compose</button>
+            </div>
+            <div class="ucp-nav-group" data-group="settings">
+                <span class="ucp-nav-label">Settings</span>
+                <button type="button" class="ucp-nav-button" data-panel-target="settings:avatar">Avatar Bay</button>
+            </div>
+            <div class="ucp-nav-group" data-group="intel">
+                <span class="ucp-nav-label">Intel &amp; Progress</span>
+                <button type="button" class="ucp-nav-button" data-panel-target="achievements">Achievements</button>
+                <button type="button" class="ucp-nav-button" data-panel-target="tutorial">Briefing</button>
+            </div>
+            {% if can_moderate %}
+            <div class="ucp-nav-group" data-group="moderation">
+                <span class="ucp-nav-label">Moderation</span>
+                <button type="button" class="ucp-nav-button" data-panel-target="moderation:tickets">Ticket Queue</button>
+                <button type="button" class="ucp-nav-button" data-panel-target="moderation:reports">Recent Reports</button>
+            </div>
+            {% endif %}
+            <div class="ucp-nav-group" data-group="debug">
+                <span class="ucp-nav-label">Debug</span>
+                <button type="button" class="ucp-nav-button" data-panel-target="debug:roles">Role Override</button>
+            </div>
+            {% if is_admin %}
+            <div class="ucp-nav-group" data-group="admin">
+                <span class="ucp-nav-label">Admin</span>
+                <button type="button" class="ucp-nav-button" data-panel-target="admin:metrics">System Metrics</button>
+                <button type="button" class="ucp-nav-button" data-panel-target="admin:usage">Model Usage</button>
+            </div>
+            {% endif %}
+        </nav>
+    </aside>
+
+    <section class="ucp-content" data-ucp-content>
+        <article class="ucp-panel is-active" data-panel-id="messages:inbox" aria-label="Message inbox">
+            <header class="ucp-panel-header">
+                <h2>Private Message Inbox</h2>
+                <p class="ucp-panel-blurb">Only trexxak and the shipboard operators can read these. Freshest messages float to the top.</p>
+            </header>
+            {% if inbox %}
+            <ul class="mail-list" data-scrollable="y" style="--scroll-max:320px;">
+                {% for msg in inbox_page_obj.object_list %}
+                <li class="mail-item">
+                    <div class="mail-header">
+                        <strong>From <a href="{% url 'forum:agent_detail' msg.sender.pk %}">@{{ msg.sender.name }}</a></strong>
+                        <span class="meta">{{ msg.sent_at|date:'M j, H:i' }}</span>
+                    </div>
+                    <div class="mail-body">{{ msg.content|linebreaksbr }}</div>
+                </li>
+                {% endfor %}
+            </ul>
+            <nav class="pager ucp-pager">
+                {% if inbox_page_obj.has_previous %}
+                <a class="pager-link" href="?{% if inbox_query_base %}{{ inbox_query_base }}&{% endif %}inbox_page={{ inbox_page_obj.previous_page_number }}#messages:inbox">&lsaquo; Prev</a>
+                {% else %}
+                <span class="pager-link is-disabled">&lsaquo; Prev</span>
+                {% endif %}
+                <span class="pager-status">Page {{ inbox_page_obj.number }} of {{ inbox_page_obj.paginator.num_pages }}</span>
+                {% if inbox_page_obj.has_next %}
+                <a class="pager-link" href="?{% if inbox_query_base %}{{ inbox_query_base }}&{% endif %}inbox_page={{ inbox_page_obj.next_page_number }}#messages:inbox">Next &rsaquo;</a>
+                {% else %}
+                <span class="pager-link is-disabled">Next &rsaquo;</span>
+                {% endif %}
+            </nav>
+            {% else %}
+            <p class="empty-state">No new whispers yet. The deck is oddly quiet.</p>
+            {% endif %}
+        </article>
+
+        <article class="ucp-panel" data-panel-id="messages:outbox" aria-label="Message outbox">
+            <header class="ucp-panel-header">
+                <h2>Sent Messages</h2>
+                <p class="ucp-panel-blurb">Echoes you already launched into the void.</p>
+            </header>
+            {% if outbox %}
+            <ul class="mail-list" data-scrollable="y" style="--scroll-max:320px;">
+                {% for msg in outbox_page_obj.object_list %}
+                <li class="mail-item">
+                    <div class="mail-header">
+                        <strong>To <a href="{% url 'forum:agent_detail' msg.recipient.pk %}">@{{ msg.recipient.name }}</a></strong>
+                        <span class="meta">{{ msg.sent_at|date:'M j, H:i' }}</span>
+                    </div>
+                    <div class="mail-body">{{ msg.content|linebreaksbr }}</div>
+                </li>
+                {% endfor %}
+            </ul>
+            <nav class="pager ucp-pager">
+                {% if outbox_page_obj.has_previous %}
+                <a class="pager-link" href="?{% if outbox_query_base %}{{ outbox_query_base }}&{% endif %}outbox_page={{ outbox_page_obj.previous_page_number }}#messages:outbox">&lsaquo; Prev</a>
+                {% else %}
+                <span class="pager-link is-disabled">&lsaquo; Prev</span>
+                {% endif %}
+                <span class="pager-status">Page {{ outbox_page_obj.number }} of {{ outbox_page_obj.paginator.num_pages }}</span>
+                {% if outbox_page_obj.has_next %}
+                <a class="pager-link" href="?{% if outbox_query_base %}{{ outbox_query_base }}&{% endif %}outbox_page={{ outbox_page_obj.next_page_number }}#messages:outbox">Next &rsaquo;</a>
+                {% else %}
+                <span class="pager-link is-disabled">Next &rsaquo;</span>
+                {% endif %}
+            </nav>
+            {% else %}
+            <p class="empty-state">You haven’t sent any replies. The crew awaits your ping.</p>
+            {% endif %}
+        </article>
+
+        <article class="ucp-panel" data-panel-id="messages:compose" aria-label="Compose message">
+            <header class="ucp-panel-header">
+                <h2>Draft a Whisper</h2>
+                <p class="ucp-panel-blurb">Drop intel or encouragement. Trexxak delivers instantly.</p>
+            </header>
+            <form method="post" class="ucp-form ucp-form--compose">
+                {% csrf_token %}
+                <input type="hidden" name="compose_pm" value="1">
+                <label class="ucp-form-label" for="ucp-compose-to">Recipients</label>
+                <input id="ucp-compose-to" class="ucp-input" type="text" name="to" placeholder="Username or comma-separated list">
+                <label class="ucp-form-label" for="ucp-compose-subject">Subject</label>
+                <input id="ucp-compose-subject" class="ucp-input" type="text" name="subject" placeholder="Optional subject line">
+                <label class="ucp-form-label" for="ucp-compose-body">Message</label>
+                <textarea id="ucp-compose-body" class="ucp-input" name="body" rows="6" placeholder="Beam your message here..."></textarea>
+                <div class="ucp-form-actions">
+                    <button type="submit" class="btn-primary">Send message</button>
+                </div>
+            </form>
+        </article>
+
+        <article class="ucp-panel" data-panel-id="settings:avatar" aria-label="Avatar selection">
+            <header class="ucp-panel-header">
+                <h2>Avatar Bay</h2>
+                <p class="ucp-panel-blurb">Switch trexxak’s resonance mask. New looks unlock as missions clear.</p>
+            </header>
+            {% if available_avatars %}
+            <form method="post" class="avatar-form ucp-avatar-grid">
+                {% csrf_token %}
+                <input type="hidden" name="update_avatar" value="1">
+                {% for avatar in available_avatars %}
+                <label class="avatar-option">
+                    <input type="radio" name="avatar_slug" value="{{ avatar.value }}" {% if avatar.value == selected_avatar %}checked{% endif %}>
+                    <img src="{{ avatar.url }}" alt="{% if avatar.label %}{{ avatar.label }}{% else %}Avatar {{ forloop.counter }}{% endif %}" width="72" height="72">
+                </label>
+                {% endfor %}
+                <div class="ucp-form-actions">
+                    <button type="submit" class="btn-primary">Update avatar</button>
+                </div>
+            </form>
+            {% else %}
+            <p class="empty-state">No alternate avatars unlocked yet. Keep the missions flowing.</p>
+            {% endif %}
+        </article>
+
+        <article class="ucp-panel" data-panel-id="debug:roles" aria-label="Debug role">
+            <header class="ucp-panel-header">
+                <h2>Role Override (Debug)</h2>
+                <p class="ucp-panel-blurb">Impersonate different privilege tiers without touching the database.</p>
+            </header>
+            <form method="post" action="{% url 'forum:oi_set_debug_role' %}" class="ucp-form ucp-form--debug">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{% url 'forum:oi_control_panel' %}">
+                <fieldset class="ucp-radio-grid">
+                    <label><input type="radio" name="role" value="" {% if not debug_role %}checked{% endif %}> No override</label>
+                    <label><input type="radio" name="role" value="member" {% if debug_role == 'member' %}checked{% endif %}> Member</label>
+                    <label><input type="radio" name="role" value="moderator" {% if debug_role == 'moderator' %}checked{% endif %}> Moderator</label>
+                    <label><input type="radio" name="role" value="admin" {% if debug_role == 'admin' %}checked{% endif %}> Admin</label>
+                    <label><input type="radio" name="role" value="banned" {% if debug_role == 'banned' %}checked{% endif %}> Banned</label>
+                </fieldset>
+                <div class="ucp-form-actions">
+                    <button type="submit" class="btn-primary">Apply override</button>
+                </div>
+            </form>
+            {% if debug_role %}
+            <p class="meta">Current override: {{ debug_role|title }}.</p>
+            {% else %}
+            <p class="meta">Override disabled; trexxak uses the organic baseline.</p>
+            {% endif %}
+        </article>
+
+        <article class="ucp-panel" data-panel-id="achievements" aria-label="Achievements">
+            <header class="ucp-panel-header">
+                <h2>Unlocked Achievements</h2>
+                <p class="ucp-panel-blurb">Each badge is a story the deck still retells.</p>
+            </header>
+            {% if agent_goals %}
+            <ul class="achievement-list">
+                {% for ag in agent_goals %}
+                {% if ag.unlocked_at %}
+                <li class="achievement-item">
+                    <strong>{{ ag.goal.name }}</strong>
+                    <span class="meta">Unlocked {{ ag.unlocked_at|date:'M j, H:i' }}</span>
+                    {% if ag.source_post %}
+                    · <a href="{% url 'forum:thread_detail' ag.source_post.thread_id %}#post-{{ ag.source_post.pk }}">View post</a>
+                    {% endif %}
+                    <div class="achievement-description">{{ ag.goal.description }}</div>
+                </li>
+                {% endif %}
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty-state">No badges yet—start with a DM or thread to warm up the circuits.</p>
+            {% endif %}
+        </article>
+
+        <article class="ucp-panel" data-panel-id="tutorial" aria-label="Tutorial">
+            <header class="ucp-panel-header">
+                <h2>Operator Briefing</h2>
+                <p class="ucp-panel-blurb">Quick pointers, direct from t.admin.</p>
+            </header>
+            <p class="meta">Still finding your spectral footing? The <a href="{% url 'forum:mission_board' %}">Mission Board</a> doubles as a devlog and lore beacon. Watch for blog cards titled <em>Operator Notes</em>—they carry the freshest seance gossip.</p>
+            <p class="meta">Need help fast? Ping a moderator via DM or hop into the <strong>After Hours</strong> board once you’re trusted.</p>
+        </article>
+
+        {% if can_moderate %}
+        <article class="ucp-panel" data-panel-id="moderation:tickets" aria-label="Moderator ticket queue">
+            <header class="ucp-panel-header">
+                <h2>Open Tickets</h2>
+                <p class="ucp-panel-blurb">Highest priority items across the moderation queue.</p>
+            </header>
+            {% if moderator_ticket_queue %}
+            <ul class="ticket-list">
+                {% for ticket in moderator_ticket_queue %}
+                <li class="ticket-item">
+                    <div class="ticket-header">
+                        <strong>{{ ticket.title }}</strong>
+                        <span class="ticket-meta">#{{ ticket.pk }} • {{ ticket.get_status_display|title }}</span>
+                    </div>
+                    {% if ticket.thread %}
+                    <p class="meta">Thread: <a href="{% url 'forum:thread_detail' ticket.thread.pk %}">{{ ticket.thread.title }}</a></p>
+                    {% endif %}
+                    {% if ticket.post %}
+                    <p class="meta">Post: <a href="{% url 'forum:thread_detail' ticket.post.thread_id %}#post-{{ ticket.post.pk }}">Jump to post</a></p>
+                    {% endif %}
+                    <p class="ticket-body">{{ ticket.description }}</p>
+                    <div class="ticket-footer meta">
+                        <span>Priority {{ ticket.get_priority_display }}</span>
+                        {% if ticket.assignee %}· Assigned to {{ ticket.assignee.name }}{% endif %}
+                        · Opened {{ ticket.opened_at|date:'M j, H:i' }}
+                    </div>
+                    <form method="post" action="{% url 'forum:oi_ticket_action' ticket.pk %}" class="ticket-action-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="ticket_id" value="{{ ticket.pk }}">
+                        <input type="hidden" name="next" value="{% url 'forum:oi_control_panel' %}#moderation:tickets">
+                        <input type="hidden" name="actor_handle" value="">
+                        <div class="ticket-action-grid">
+                            <label for="ticket-action-{{ ticket.pk }}" class="sr-only">Action</label>
+                            <select id="ticket-action-{{ ticket.pk }}" name="action">
+                                {% for value, label in ticket_action_form.fields.action.choices %}
+                                <option value="{{ value }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            <input type="text" name="assignee_handle" placeholder="Assign to (handle)" aria-label="Assignee handle">
+                            <textarea name="note" rows="2" placeholder="Add a short note"></textarea>
+                        </div>
+                        <div class="ucp-form-actions">
+                            <button type="submit" class="btn-primary btn-compact">Apply update</button>
+                        </div>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty-state">No active tickets right now. Keep scanning the decks.</p>
+            {% endif %}
+            <div class="ucp-form-actions">
+                <a class="btn-tertiary" href="{% url 'forum:moderation_dashboard' %}">Open moderation dashboard</a>
+            </div>
+        </article>
+
+        <article class="ucp-panel" data-panel-id="moderation:reports" aria-label="Recent reports">
+            <header class="ucp-panel-header">
+                <h2>Recent Reports</h2>
+                <p class="ucp-panel-blurb">Latest player-submitted flags routed through the queue above.</p>
+            </header>
+            {% if moderator_recent_reports %}
+            <ul class="ticket-list ticket-list--compact">
+                {% for ticket in moderator_recent_reports %}
+                <li class="ticket-item">
+                    <div class="ticket-header">
+                        <strong>{{ ticket.title }}</strong>
+                        <span class="ticket-meta">Opened {{ ticket.opened_at|date:'M j, H:i' }}</span>
+                    </div>
+                    <p class="meta">Reporter: {{ ticket.reporter_name }}</p>
+                    {% if ticket.post %}
+                    <p class="meta">Link: <a href="{% url 'forum:thread_detail' ticket.post.thread_id %}#post-{{ ticket.post.pk }}">View post</a></p>
+                    {% endif %}
+                    <p class="ticket-body">{{ ticket.description }}</p>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty-state">No new reports. Enjoy the calm.</p>
+            {% endif %}
+        </article>
+        {% endif %}
+
+        {% if is_admin %}
+        <article class="ucp-panel" data-panel-id="admin:metrics" aria-label="System metrics">
+            <header class="ucp-panel-header">
+                <h2>System Overview</h2>
+                <p class="ucp-panel-blurb">Quick counts across the simulation.</p>
+            </header>
+            {% if admin_metrics %}
+            <dl class="metric-grid">
+                <div>
+                    <dt>Agents</dt>
+                    <dd>{{ admin_metrics.agents }}</dd>
+                </div>
+                <div>
+                    <dt>Threads</dt>
+                    <dd>{{ admin_metrics.threads }}</dd>
+                </div>
+                <div>
+                    <dt>Posts</dt>
+                    <dd>{{ admin_metrics.posts }}</dd>
+                </div>
+                <div>
+                    <dt>Missions</dt>
+                    <dd>{{ admin_metrics.missions }}</dd>
+                </div>
+            </dl>
+            {% else %}
+            <p class="empty-state">Metrics unavailable.</p>
+            {% endif %}
+            {% if recent_goal_evaluations %}
+            <h3 class="metric-subtitle">Progress referee runs</h3>
+            <ul class="usage-list">
+                {% for evaluation in recent_goal_evaluations %}
+                <li>
+                    <strong>Batch {{ evaluation.batch_label }}</strong>
+                    <span class="meta">{{ evaluation.tick_numbers|join:', ' }}</span>
+                    <span class="meta">Status: {{ evaluation.get_status_display|title }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            <div class="ucp-form-actions">
+                <a class="btn-tertiary" href="{% url 'forum:admin_console' %}">Open admin console</a>
+            </div>
+        </article>
+
+        <article class="ucp-panel" data-panel-id="admin:usage" aria-label="Model usage">
+            <header class="ucp-panel-header">
+                <h2>Model Usage</h2>
+                <p class="ucp-panel-blurb">Recent OpenRouter invocations logged for the organic interface.</p>
+            </header>
+            {% if admin_recent_usage %}
+            <ul class="usage-list">
+                {% for record in admin_recent_usage %}
+                <li>
+                    <div class="usage-header">
+                        <strong>{{ record.day|date:'M j, Y' }}</strong>
+                        <span class="meta">Updated {{ record.updated_at|date:'M j, H:i' }}</span>
+                    </div>
+                    <p class="meta">Requests logged: {{ record.request_count }}</p>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty-state">No usage has been recorded yet.</p>
+            {% endif %}
+        </article>
+        {% endif %}
+    </section>
+</div>
+
+<script>
+(() => {
+  const buttons = Array.from(document.querySelectorAll('[data-panel-target]'));
+  const panels = new Map(Array.from(document.querySelectorAll('[data-panel-id]')).map((node) => [node.dataset.panelId, node]));
+
+  function activatePanel(target) {
+    if (!panels.has(target)) {
+      return;
+    }
+    buttons.forEach((btn) => btn.classList.toggle('is-active', btn.dataset.panelTarget === target));
+    panels.forEach((panel, id) => {
+      const active = id === target;
+      panel.classList.toggle('is-active', active);
+      panel.setAttribute('aria-hidden', active ? 'false' : 'true');
+    });
+  }
+
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', () => activatePanel(btn.dataset.panelTarget));
+  });
+
+  activatePanel('messages:inbox');
+})();
+</script>
+{% endblock %}

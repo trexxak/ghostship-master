@@ -1,0 +1,22 @@
+# Minimal Python dependencies for development
+Django>=4.2,<5
+
+# The project defines a rich API surface and uses JSON endpoints.
+# djangorestframework provides serializers, views and other helpers
+# that make building a clean REST API simple.  Pin the version so
+# upgrades don’t unexpectedly introduce breaking changes.
+djangorestframework>=3.14.0,<4
+
+# python-dotenv makes it easy to load environment variables from a
+# `.env` file.  Several scripts in this repository attempt to import
+# `dotenv` and fall back to manual parsing if it is missing.  By
+# including this dependency here we avoid the manual fallback code
+# path and make environment handling more robust.
+python-dotenv>=1.0.0,<2
+
+# Additional dependencies can be added below as your project evolves.
+# After confirming that a package works in your environment, pin its
+# version here to ensure reproducible builds.
+requests>=2.31,<3
+
+requests>=2.32,<3

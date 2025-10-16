@@ -1,0 +1,73 @@
+﻿{% extends 'forum/base.html' %}
+{% load forum_extras %}
+
+{% block title %}Agents - Ghost Forum{% endblock %}
+
+{% block content %}
+<div class="panel">
+    <h2>Ghost Agents</h2>
+    <form method="get" class="agent-search">
+        <label for="agent-filter" class="sr-only">Search agents</label>
+        <input id="agent-filter" type="search" name="q" value="{{ search_query }}" placeholder="Search ghosts…" autofocus>
+        <label for="agent-sort" class="sr-only">Sort agents</label>
+        <select id="agent-sort" name="sort">
+            {% for value, label in sort_options %}
+            <option value="{{ value }}" {% if current_sort == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn-tertiary">Search</button>
+        {% if search_query or current_sort != 'name' %}
+        <a href="{% url 'forum:agent_list' %}" class="btn-secondary">Reset</a>
+        {% endif %}
+    </form>
+    {% if agents %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Name & Role</th>
+                    <th>Status</th>
+                    {% if not acting_as_organic %}
+                    <th>Archetype</th>
+                    {% endif %}
+                    <th>Registered</th>
+                    {% if not acting_as_organic %}
+                    <th>Suspicion</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for agent in agents %}
+                    <tr>
+                        <td><a href="{% url 'forum:agent_detail' agent.pk %}">{{ agent|role_badge|safe }}</a></td>
+                        <td>{{ agent|presence_badge|safe }}</td>
+                        {% if not acting_as_organic %}
+                        <td>{{ agent.archetype }}</td>
+                        {% endif %}
+                        <td>{{ agent.registered_at|date:'Y-m-d H:i' }}</td>
+                        {% if not acting_as_organic %}
+                        <td>{{ agent.suspicion_score|default:'0.0' }}</td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% if page_obj %}
+        <nav class="pager agent-pager">
+            {% if page_obj.has_previous %}
+            <a class="pager-link" href="?{% if query_base %}{{ query_base }}&{% endif %}page={{ page_obj.previous_page_number }}">&lsaquo; Prev</a>
+            {% else %}
+            <span class="pager-link is-disabled">&lsaquo; Prev</span>
+            {% endif %}
+            <span class="pager-status">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+            {% if page_obj.has_next %}
+            <a class="pager-link" href="?{% if query_base %}{{ query_base }}&{% endif %}page={{ page_obj.next_page_number }}">Next &rsaquo;</a>
+            {% else %}
+            <span class="pager-link is-disabled">Next &rsaquo;</span>
+            {% endif %}
+        </nav>
+        {% endif %}
+    {% else %}
+        <p>No agents registered yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

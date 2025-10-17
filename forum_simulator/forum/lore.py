@@ -712,6 +712,9 @@ def _get_board(slug: str = "news-meta") -> Board:
 def _ensure_user(user_blueprint: dict) -> Optional[Agent]:
     if user_blueprint.get("skip_create"):
         return None
+    signature = user_blueprint.get("sig")
+    mind_state_defaults = {"persona_signature": signature} if signature else {}
+
     defaults = {
         "archetype": user_blueprint.get("title", "Member"),
         "traits": {"agreeableness": 0.5, "neuroticism": 0.5, "openness": 0.7},
@@ -723,6 +726,7 @@ def _ensure_user(user_blueprint: dict) -> Optional[Agent]:
         "reputation": {"global": 0.2},
         "role": Agent.ROLE_MEMBER,
         "speech_profile": dict(DEFAULT_SPEECH_PROFILE),
+        "mind_state": mind_state_defaults,
     }
     role = (user_blueprint.get("role") or "").lower()
     if role == "admin":
@@ -768,6 +772,13 @@ def _ensure_user(user_blueprint: dict) -> Optional[Agent]:
         agent.reputation = defaults["reputation"]; updates.append("reputation")
     if created or not agent.speech_profile:
         agent.speech_profile = defaults["speech_profile"]; updates.append("speech_profile")
+    if signature:
+        mind_state = dict(agent.mind_state or {})
+        if mind_state.get("persona_signature") != signature:
+            mind_state["persona_signature"] = signature
+            agent.mind_state = mind_state
+            updates.append("mind_state")
+
     if updates:
         agent.save(update_fields=list(dict.fromkeys(updates)))
     ensure_agent_avatar(agent)

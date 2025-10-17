@@ -791,23 +791,29 @@ def thread_detail(request: HttpRequest, pk: int) -> HttpResponse:
     if not can_moderate:
         posts_qs = posts_qs.filter(is_hidden=False)
 
-    post_paginator = Paginator(posts_qs, POSTS_PER_PAGE) if posts_qs.exists() else None
+    total_posts = posts_qs.count()
+    post_paginator: Paginator | None = None
     post_page_obj = None
     page_posts: list[Post] = []
 
-    if post_paginator and post_paginator.count:
+    if total_posts:
+        post_paginator = Paginator(posts_qs, POSTS_PER_PAGE)
+        post_paginator._count = total_posts  # type: ignore[attr-defined]
+        page_total = max(math.ceil(total_posts / POSTS_PER_PAGE), 1)
         requested_page = request.GET.get("page")
         if requested_page in (None, "", "last"):
-            requested_page = post_paginator.num_pages or 1
-        try:
-            post_page_obj = post_paginator.page(requested_page)
-        except PageNotAnInteger:
-            post_page_obj = post_paginator.page(1)
-        except EmptyPage:
-            post_page_obj = post_paginator.page(post_paginator.num_pages or 1)
+            page_number = page_total
+        else:
+            try:
+                page_number = int(requested_page)
+            except (TypeError, ValueError):
+                page_number = 1
+            else:
+                page_number = max(1, min(page_total, page_number))
+        post_page_obj = post_paginator.get_page(page_number)
         page_posts = list(post_page_obj.object_list)
 
-    visible_post_count = post_paginator.count if post_paginator else 0
+    visible_post_count = total_posts
     op_post = posts_qs.first() if visible_post_count else None
     latest_post_global = posts_qs.order_by("-created_at").first() if visible_post_count else None
 
@@ -1134,17 +1140,21 @@ def board_detail(request: HttpRequest, slug: str) -> HttpResponse:
     thread_paginator: Paginator | None
     thread_page_obj = None
     regular_threads_page: list[Thread] = []
+    thread_page_window: list[int] = []
 
     if regular_threads_all:
         thread_paginator = Paginator(regular_threads_all, THREADS_PER_PAGE)
-        page_number = request.GET.get("page") or 1
+        page_request = request.GET.get("page") or 1
         try:
-            thread_page_obj = thread_paginator.page(page_number)
-        except PageNotAnInteger:
-            thread_page_obj = thread_paginator.page(1)
-        except EmptyPage:
-            thread_page_obj = thread_paginator.page(thread_paginator.num_pages)
+            page_number = int(page_request)
+        except (TypeError, ValueError):
+            page_number = 1
+        thread_page_obj = thread_paginator.get_page(page_number)
         regular_threads_page = list(thread_page_obj.object_list)
+        current_page = thread_page_obj.number
+        start_page = max(current_page - 2, 1)
+        end_page = min(current_page + 2, thread_paginator.num_pages)
+        thread_page_window = list(range(start_page, end_page + 1))
     else:
         thread_paginator = None
 
@@ -1193,6 +1203,7 @@ def board_detail(request: HttpRequest, slug: str) -> HttpResponse:
         "thread_page_obj": thread_page_obj,
         "thread_paginator": thread_paginator,
         "threads_per_page": THREADS_PER_PAGE,
+        "thread_page_window": thread_page_window,
     }
     return render(request, "forum/board_detail.html", context)
 
@@ -1766,8 +1777,44 @@ def admin_console(request: HttpRequest) -> HttpResponse:
 
 
 def oracle_log(request: HttpRequest) -> HttpResponse:
-    draws = OracleDraw.objects.order_by("-tick_number")[:100]
-    return render(request, "forum/oracle_log.html", {"draws": draws})
+    draws = list(OracleDraw.objects.order_by("-tick_number")[:100])
+    tick_numbers = [draw.tick_number for draw in draws]
+    tick_logs = {
+        log.tick_number: log
+        for log in TickLog.objects.filter(tick_number__in=tick_numbers)
+    }
+    draw_payload: list[dict[str, object]] = []
+    scrubber_payload: list[dict[str, object]] = []
+    for draw in draws:
+        alloc = draw.alloc or {}
+        draw_payload.append(
+            {
+                "tick": draw.tick_number,
+                "rolls": draw.rolls,
+                "energy": draw.energy,
+                "energy_prime": draw.energy_prime,
+                "specials": alloc.get("specials"),
+                "notes": alloc.get("notes"),
+                "alloc": alloc,
+                "seed": getattr(draw, "seed", None),
+                "card": draw.card,
+            }
+        )
+        log = tick_logs.get(draw.tick_number)
+        scrubber_payload.append(
+            {
+                "tick": draw.tick_number,
+                "seed": getattr(draw, "seed", None),
+                "decision_count": len(getattr(log, "decision_trace", []) or []),
+                "events": getattr(log, "events", []) or [],
+            }
+        )
+    context = {
+        "draws": draws,
+        "draw_data": draw_payload,
+        "scrubber_data": scrubber_payload,
+    }
+    return render(request, "forum/oracle_log.html", context)
 
 
 def raw_outputs(request: HttpRequest) -> HttpResponse:
@@ -1780,7 +1827,8 @@ def raw_outputs(request: HttpRequest) -> HttpResponse:
 
 def tick_detail(request: HttpRequest, tick_number: int) -> HttpResponse:
     tick = get_object_or_404(TickLog, tick_number=tick_number)
-    return render(request, "forum/tick_detail.html", {"tick": tick})
+    oracle = OracleDraw.objects.filter(tick_number=tick_number).first()
+    return render(request, "forum/tick_detail.html", {"tick": tick, "oracle": oracle})
 
 
 def _next_destination(request: HttpRequest) -> str:

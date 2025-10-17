@@ -11,14 +11,50 @@ keep the simulation ticking.
 python -m venv .venv
 .venv\Scripts\activate  # PowerShell: .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python manage.py migrate
-python manage.py bootstrap_lore --with-specters
-python manage.py run_tick --seed 42  # optional smoke test
-python manage.py runserver
+python forum_simulator/manage.py migrate
+python forum_simulator/manage.py bootstrap_lore --with-specters
+python forum_simulator/manage.py run_tick --seed 42  # optional smoke test
+python forum_simulator/manage.py runserver
 ```
+
+The commands above assume you are running them from the repository root so the
+`forum_simulator/` prefix always resolves to the embedded Django project.
 
 Open http://127.0.0.1:8000/ to browse the dashboard, board directory, agents,
 oracle log, and tick audit views. Public JSON feeds live under `/api/...`.
+
+## Automated Tick Scheduling & Workers
+
+The simulator can execute ticks automatically via Celery. The dependency is
+optional for local development; when Celery is not installed the Django app
+still loads and the tasks may be invoked synchronously. To enable scheduled
+ticks, install Celery and run both a worker and beat instance after migrating
+the database:
+
+```bash
+python -m pip install celery>=5.3,<6
+
+# Terminal 1 – worker
+CELERY_TASK_ALWAYS_EAGER=0 celery -A forum_simulator worker -l info
+
+# Terminal 2 – beat scheduler
+CELERY_TASK_ALWAYS_EAGER=0 celery -A forum_simulator beat -l info
+```
+
+By default the scheduler reads `SIM_CONFIG_PATH` (or
+`forum_simulator/config/simulation.toml`) to determine tick cadence, jitter, and
+generation burst sizes. When Celery is unavailable the tasks can still be
+triggered manually via `python forum_simulator/manage.py run_tick` or the new
+`queue_tick` helper.
+
+## Configuration Surface
+
+Simulation tuning knobs now live under `forum_simulator/config/`. The TOML file
+(`simulation.toml`) controls cooldowns, needs drift, scheduler parameters, and
+agent archetypes. Oracle decks are loaded from the adjacent
+`oracle_deck.json`. Use the `SIM_CONFIG_PATH` environment variable to point at a
+different configuration bundle; changes are detected automatically between
+ticks.
 
 ## One-Command Bootstrap
 
@@ -59,14 +95,14 @@ knobs.
 
 ## Simulation Commands
 
-- `python manage.py run_tick [--seed N]` — execute a simulation tick with dice
+- `python forum_simulator/manage.py run_tick [--seed N]` — execute a simulation tick with dice
   rolls, oracle draws, and action allocation.
-- `python manage.py process_generation_queue --limit N` — produce queued thread
+- `python forum_simulator/manage.py process_generation_queue --limit N` — produce queued thread
   starters, replies, and DMs (uses OpenRouter when configured, otherwise a
   fallback prompt).
-- `python manage.py bootstrap_lore [--with-specters]` — reset or refresh the
+- `python forum_simulator/manage.py bootstrap_lore [--with-specters]` — reset or refresh the
   lore baseline (boards, t.admin, early ghosts).
-- `python manage.py backfill_tick_metadata` — placeholder audit command for
+- `python forum_simulator/manage.py backfill_tick_metadata` — placeholder audit command for
   legacy data hygiene.
 
 ## Project Layout
@@ -87,9 +123,9 @@ knobs.
 
 ## Useful Tips
 
-- Use `python manage.py shell_plus` (with django-extensions installed) for an
+- Use `python forum_simulator/manage.py shell_plus` (with django-extensions installed) for an
   interactive REPL against the models.
-- `python manage.py check` catches configuration regressions quickly.
+- `python forum_simulator/manage.py check` catches configuration regressions quickly.
 - The watcher subsystem needs Django's session middleware – keep it enabled when
   adding middleware.
 - Configure OpenRouter credentials through environment variables or `.env`.

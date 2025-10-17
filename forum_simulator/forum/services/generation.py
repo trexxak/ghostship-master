@@ -28,21 +28,8 @@ BATCHABLE_TYPES = {
 def _table_exists(table: str, using: str = "default") -> bool:
     try:
         return table in connections[using].introspection.table_names()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
-
-def process_generation_queue(limit: int = 10) -> tuple[int, int]:
-    # ...
-    table = GenerationTask._meta.db_table
-    if not _table_exists(table):
-        return 0, 0
-    try:
-        task_qs = (GenerationTask.objects
-                   .filter(status=GenerationTask.STATUS_PENDING)
-                   .order_by("created_at")[:limit])
-        tasks = list(task_qs)
-    except (OperationalError, ProgrammingError):
-        return 0, 0
 
 def _batch_size_limit() -> int:
     configured = config_service.get_int("GENERATION_BATCH_SIZE", 3)
@@ -172,15 +159,21 @@ def _queue_limit() -> int:
 
 def process_generation_queue(*, limit: Optional[int] = None) -> tuple[int, int]:
     limit = limit or _queue_limit()
-    now = timezone.now()
+    table = GenerationTask._meta.db_table
+    if not _table_exists(table):
+        return 0, 0
 
-    task_qs = (
-        GenerationTask.objects.select_related("agent", "thread", "recipient")
-        .filter(status=GenerationTask.STATUS_PENDING)
-        .filter(models.Q(scheduled_for__isnull=True) | models.Q(scheduled_for__lte=now))
-        .order_by("created_at")[:limit]
-    )
-    tasks = list(task_qs)
+    now = timezone.now()
+    try:
+        task_qs = (
+            GenerationTask.objects.select_related("agent", "thread", "recipient")
+            .filter(status=GenerationTask.STATUS_PENDING)
+            .filter(models.Q(scheduled_for__isnull=True) | models.Q(scheduled_for__lte=now))
+            .order_by("created_at")[:limit]
+        )
+        tasks = list(task_qs)
+    except (OperationalError, ProgrammingError):
+        return 0, 0
 
     processed = 0
     deferred = 0
@@ -663,6 +656,19 @@ def _process_task_batch(tasks: list[GenerationTask]) -> tuple[int, int]:
             processed += 1
         else:
             deferred += 1
+        return processed, deferred
+
+    available = remaining_requests()
+    try:
+        available_int = int(available)
+    except (TypeError, ValueError):
+        available_int = 0
+    if available_int < len(ready):
+        for task in ready:
+            if _process_single_task(task):
+                processed += 1
+            else:
+                deferred += 1
         return processed, deferred
 
     for task in ready:

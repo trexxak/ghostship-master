@@ -1,0 +1,138 @@
+{
+  "seance_events": [
+    {
+      "slug": "harmony-bloom",
+      "label": "Harmony Bloom",
+      "description": "A soft resonance calms every deck.",
+      "sentiment_bias": 0.28,
+      "toxicity_bias": -0.2,
+      "reply_factor": 1.25,
+      "dm_factor": 1.15,
+      "presence_push": 5,
+      "mood": "bright"
+    },
+    {
+      "slug": "salt-howl",
+      "label": "Salt Howl",
+      "description": "Grinding static makes the forum bitter.",
+      "sentiment_bias": -0.32,
+      "toxicity_bias": 0.22,
+      "reply_factor": 1.1,
+      "dm_factor": 0.8,
+      "presence_push": 2,
+      "mood": "acerbic"
+    },
+    {
+      "slug": "ember-vigil",
+      "label": "Ember Vigil",
+      "description": "A reflective vigil tilts conversations wistful.",
+      "sentiment_bias": 0.12,
+      "toxicity_bias": -0.05,
+      "reply_factor": 0.95,
+      "dm_factor": 1.3,
+      "presence_push": 3,
+      "mood": "wistful"
+    },
+    {
+      "slug": "void-lullaby",
+      "label": "Void Lullaby",
+      "description": "A hollow lull dulls energy across the boards.",
+      "sentiment_bias": -0.08,
+      "toxicity_bias": -0.1,
+      "reply_factor": 0.75,
+      "dm_factor": 0.6,
+      "presence_push": 1,
+      "mood": "detached"
+    },
+    {
+      "slug": "echo-market",
+      "label": "Echo Market",
+      "description": "Hyperactive trading of omens sparks chatter.",
+      "sentiment_bias": 0.05,
+      "toxicity_bias": 0.18,
+      "reply_factor": 1.45,
+      "dm_factor": 1.4,
+      "presence_push": 6,
+      "mood": "frenetic"
+    }
+  ],
+  "omen_incidents": [
+    {
+      "slug": "ddos-barrage",
+      "label": "Hull DDoS Barrage",
+      "category": "infrastructure",
+      "description": "The mesh buffers fry; throughput tanks.",
+      "registrations_factor": 0.35,
+      "threads_factor": 0.6,
+      "replies_factor": 0.65,
+      "private_messages_factor": 0.8,
+      "moderation_bonus": 2,
+      "report_bonus": 1,
+      "toxicity_bias": 0.05,
+      "sentiment_bias": -0.1,
+      "notes": ["omen: ddos barrage throttled capacity"]
+    },
+    {
+      "slug": "troll-raid",
+      "label": "Troll Raid",
+      "category": "intrusion",
+      "description": "Coordinated outsiders swarm After Hours.",
+      "registrations_factor": 0.9,
+      "threads_factor": 1.05,
+      "replies_factor": 1.35,
+      "private_messages_factor": 0.9,
+      "moderation_bonus": 5,
+      "report_bonus": 4,
+      "toxicity_bias": 0.27,
+      "sentiment_bias": -0.2,
+      "notes": ["omen: troll raid escalated moderation demand"],
+      "stress_shift": 0.08
+    },
+    {
+      "slug": "admin-pranks",
+      "label": "Admin Pranks",
+      "category": "antics",
+      "description": "The admin swaps thread titles mid-flight.",
+      "registrations_factor": 1.15,
+      "threads_factor": 1.05,
+      "replies_factor": 0.85,
+      "private_messages_factor": 1.6,
+      "moderation_bonus": 1,
+      "report_bonus": 0,
+      "toxicity_bias": -0.05,
+      "sentiment_bias": 0.22,
+      "notes": ["omen: admin pranks loosened decorum"]
+    },
+    {
+      "slug": "moderator-uprising",
+      "label": "Moderator Uprising",
+      "category": "internal",
+      "description": "Mods quietly stage a vote of no confidence.",
+      "registrations_factor": 0.8,
+      "threads_factor": 0.75,
+      "replies_factor": 0.9,
+      "private_messages_factor": 1.2,
+      "moderation_bonus": 4,
+      "report_bonus": 3,
+      "toxicity_bias": 0.12,
+      "sentiment_bias": -0.14,
+      "notes": ["omen: moderator uprising strains hierarchy"],
+      "stress_shift": 0.12
+    },
+    {
+      "slug": "waifu-wars",
+      "label": "Waifu Wars",
+      "category": "culture",
+      "description": "Factional debates ignite across every board.",
+      "registrations_factor": 1.05,
+      "threads_factor": 1.25,
+      "replies_factor": 1.5,
+      "private_messages_factor": 1.1,
+      "moderation_bonus": 3,
+      "report_bonus": 2,
+      "toxicity_bias": 0.19,
+      "sentiment_bias": 0.08,
+      "notes": ["omen: waifu wars set threads ablaze"]
+    }
+  ]
+}

@@ -7,20 +7,14 @@ from dataclasses import dataclass, field
 from django.db.models import Avg
 
 from forum.models import Agent, Thread
+from forum.services import sim_config
 from .random_ops import poisson
 
 # Default capacity and coefficients derived from the design notes.
-FORUM_CAPACITY = 10_000
 REG_BASELINE = 0.3
 REG_SQRT_FACTOR = 0.8
-OMEN_PROBABILITY = 0.01
-SEANCE_THRESHOLD = 12
-SEANCE_PROBABILITY = 0.12
-SEANCE_REPLY_MULTIPLIER = 2.0
-SEANCE_PM_MULTIPLIER = 1.6
-SEANCE_THREAD_FLOOR = 1
 
-SEANCE_WORLD_EVENTS = [
+_FALLBACK_SEANCE_WORLD_EVENTS = [
     {
         "slug": "harmony-bloom",
         "label": "Harmony Bloom",
@@ -78,7 +72,7 @@ SEANCE_WORLD_EVENTS = [
     },
 ]
 
-OMEN_FORUM_INCIDENTS = [
+_FALLBACK_OMEN_FORUM_INCIDENTS = [
     {
         "slug": "ddos-barrage",
         "label": "Hull DDoS Barrage",
@@ -157,6 +151,20 @@ OMEN_FORUM_INCIDENTS = [
         "notes": ["omen: waifu wars set threads ablaze"],
     },
 ]
+
+_ORACLE_CONFIG = sim_config.oracle_settings()
+_ORACLE_DECK = _ORACLE_CONFIG.get("deck") or {}
+
+FORUM_CAPACITY = int(_ORACLE_CONFIG.get("forum_capacity", 10_000))
+OMEN_PROBABILITY = float(_ORACLE_CONFIG.get("omen_probability", 0.01))
+SEANCE_THRESHOLD = int(_ORACLE_CONFIG.get("seance_threshold", 12))
+SEANCE_PROBABILITY = float(_ORACLE_CONFIG.get("seance_probability", 0.12))
+SEANCE_REPLY_MULTIPLIER = float(_ORACLE_CONFIG.get("seance_reply_multiplier", 2.0))
+SEANCE_PM_MULTIPLIER = float(_ORACLE_CONFIG.get("seance_pm_multiplier", 1.6))
+SEANCE_THREAD_FLOOR = int(_ORACLE_CONFIG.get("seance_thread_floor", 1))
+
+SEANCE_WORLD_EVENTS = list(_ORACLE_DECK.get("seance_events") or _FALLBACK_SEANCE_WORLD_EVENTS)
+OMEN_FORUM_INCIDENTS = list(_ORACLE_DECK.get("omen_incidents") or _FALLBACK_OMEN_FORUM_INCIDENTS)
 
 
 @dataclass
@@ -297,6 +305,7 @@ def allocate_actions(
     capacity: int = FORUM_CAPACITY,
     *,
     streaks: dict[str, int] | None = None,
+    forced_card: str | None = None,
 ) -> Allocation:
     """Allocate core action counts for the tick based on energy, population, and recent heat."""
     energy_prime = max(0, energy_prime)
@@ -328,10 +337,27 @@ def allocate_actions(
     mod_rate = max(0.05, 0.02 * agent_pressure + 0.04 * math.sqrt(energy_prime + 1))
     moderation_events = poisson(mod_rate, rng)
 
+    card_slug = (forced_card or "").strip().lower()
+    forced_seance_event = None
+    forced_omen_event = None
+    if card_slug:
+        for event in SEANCE_WORLD_EVENTS:
+            if str(event.get("slug", "")).lower() == card_slug:
+                forced_seance_event = dict(event)
+                break
+        for event in OMEN_FORUM_INCIDENTS:
+            if str(event.get("slug", "")).lower() == card_slug:
+                forced_omen_event = dict(event)
+                break
+
     omen, seance = determine_specials(energy_prime, rng, streaks=streaks)
+    if forced_seance_event is not None:
+        seance = True
+    if forced_omen_event is not None:
+        omen = True
     notes: list[str] = []
-    seance_event: dict[str, object] | None = None
-    if seance:
+    seance_event: dict[str, object] | None = forced_seance_event
+    if seance and seance_event is None:
         seance_event = _choose_seance_event(rng)
         threads, replies, private_messages, moderation_events, boost_notes = apply_seance_boosts(
             threads,
@@ -342,8 +368,8 @@ def allocate_actions(
         )
         notes.extend(boost_notes)
 
-    omen_event: dict[str, object] | None = None
-    if omen:
+    omen_event: dict[str, object] | None = forced_omen_event
+    if omen and omen_event is None:
         omen_event = _choose_omen_incident(rng)
         regs = max(0, int(round(regs * float(omen_event.get("registrations_factor", 1.0)))))
         threads = max(0, int(round(threads * float(omen_event.get("threads_factor", 1.0)))))

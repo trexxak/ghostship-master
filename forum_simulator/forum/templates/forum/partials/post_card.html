@@ -1,4 +1,4 @@
-{% load forum_extras forum_extras_new %}
+{% load forum_extras %}
 <article id="post-{{ post.pk }}"
     class="post-card{% if is_original %} post-card--op{% endif %}{% if show_header %} thread-op-card{% endif %}{% if post.is_placeholder %} post-card--placeholder{% endif %}{% if post.author.role == 'admin' %} post-card--admin{% elif post.author.role == 'moderator' %} post-card--moderator{% elif post.author.role == 'organic' %} post-card--organic{% endif %}{% if post.viewer_hidden %} post-card--hidden{% endif %}"
     data-author-handle="{{ post.author.name|lower }}" data-author-label="{{ post.author.name }}">
@@ -78,8 +78,14 @@
             <time datetime="{{ post.created_at|date:'c' }}">{{ post.created_at|date:'M j, H:i' }}</time>
             <div class="post-flags">
                 {% if post.authored_by_operator %}
-                {# Show a unique instance identifier instead of a generic operator flag #}
-                <span class="flag flag-operator" title="Instance identifier">#{{ post.operator_session_key|tripcode }}</span>
+                {# Prefer the unique instance identifier, but fall back to a descriptive label #}
+                <span class="flag flag-operator" title="Instance identifier">
+                    {% if post.operator_session_key %}
+                    #{{ post.operator_session_key|tripcode }}
+                    {% else %}
+                    Operator-typed
+                    {% endif %}
+                </span>
                 {% endif %}
                 {% if post.tick_number %}
                 <span class="flag">Tick {{ post.tick_number }}</span>

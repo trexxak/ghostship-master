@@ -17,6 +17,10 @@ python-dotenv>=1.0.0,<2
 # Additional dependencies can be added below as your project evolves.
 # After confirming that a package works in your environment, pin its
 # version here to ensure reproducible builds.
-requests>=2.31,<3
-
 requests>=2.32,<3
+
+# Task scheduling + workers
+celery>=5.3,<6
+
+# TOML parsing fallback for Python <3.11
+tomli>=2.0.1; python_version < "3.11"

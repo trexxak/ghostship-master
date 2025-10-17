@@ -86,17 +86,26 @@
     <section class="thread-index" id="thread-list">
         {% if thread_page_obj %}
         <nav class="pager thread-pager" data-pagination data-pagination-target="#thread-list" data-page-current="{{ thread_page_obj.number }}" data-page-total="{{ thread_page_obj.paginator.num_pages }}">
+            <a class="pager-link{% if thread_page_obj.number == 1 %} is-disabled{% endif %}"
+               href="{% if thread_page_obj.number > 1 %}?page=1#thread-list{% else %}#{% endif %}"
+               data-page="first">|&lt;</a>
             <a class="pager-link{% if not thread_page_obj.has_previous %} is-disabled{% endif %}"
-               href="{% if thread_page_obj.has_previous %}?page={{ thread_page_obj.previous_page_number }}{% else %}#{% endif %}"
-               data-page="prev">
-                ‹ Prev
-            </a>
-            <span class="pager-status">Page {{ thread_page_obj.number }} of {{ thread_page_obj.paginator.num_pages }}</span>
+               href="{% if thread_page_obj.has_previous %}?page={{ thread_page_obj.previous_page_number }}#thread-list{% else %}#{% endif %}"
+               data-page="prev">‹ Prev</a>
+            <div class="pager-dots">
+                {% for number in thread_page_window %}
+                <a class="pager-number{% if number == thread_page_obj.number %} is-active{% endif %}"
+                   href="?page={{ number }}#thread-list"
+                   data-page="{{ number }}">{{ number }}</a>
+                {% endfor %}
+            </div>
             <a class="pager-link{% if not thread_page_obj.has_next %} is-disabled{% endif %}"
-               href="{% if thread_page_obj.has_next %}?page={{ thread_page_obj.next_page_number }}{% else %}#{% endif %}"
-               data-page="next">
-                Next ›
-            </a>
+               href="{% if thread_page_obj.has_next %}?page={{ thread_page_obj.next_page_number }}#thread-list{% else %}#{% endif %}"
+               data-page="next">Next ›</a>
+            <a class="pager-link{% if thread_page_obj.number == thread_page_obj.paginator.num_pages %} is-disabled{% endif %}"
+               href="{% if thread_page_obj.number < thread_page_obj.paginator.num_pages %}?page={{ thread_page_obj.paginator.num_pages }}#thread-list{% else %}#{% endif %}"
+               data-page="last">&gt;|</a>
+            <span class="pager-status">Page {{ thread_page_obj.number }} of {{ thread_page_obj.paginator.num_pages }}</span>
             <form class="pager-form" method="get" action="">
                 <label for="thread-page-select" class="sr-only">Jump to page</label>
                 <select id="thread-page-select" name="page" data-pagination-select>
@@ -153,17 +162,26 @@
         </div>
         {% if thread_page_obj %}
         <nav class="pager thread-pager thread-pager--footer" data-pagination data-pagination-target="#thread-list" data-page-current="{{ thread_page_obj.number }}" data-page-total="{{ thread_page_obj.paginator.num_pages }}">
+            <a class="pager-link{% if thread_page_obj.number == 1 %} is-disabled{% endif %}"
+               href="{% if thread_page_obj.number > 1 %}?page=1#thread-list{% else %}#{% endif %}"
+               data-page="first">|&lt;</a>
             <a class="pager-link{% if not thread_page_obj.has_previous %} is-disabled{% endif %}"
-               href="{% if thread_page_obj.has_previous %}?page={{ thread_page_obj.previous_page_number }}{% else %}#{% endif %}"
-               data-page="prev">
-                ‹ Prev
-            </a>
-            <span class="pager-status">Page {{ thread_page_obj.number }} of {{ thread_page_obj.paginator.num_pages }}</span>
+               href="{% if thread_page_obj.has_previous %}?page={{ thread_page_obj.previous_page_number }}#thread-list{% else %}#{% endif %}"
+               data-page="prev">‹ Prev</a>
+            <div class="pager-dots">
+                {% for number in thread_page_window %}
+                <a class="pager-number{% if number == thread_page_obj.number %} is-active{% endif %}"
+                   href="?page={{ number }}#thread-list"
+                   data-page="{{ number }}">{{ number }}</a>
+                {% endfor %}
+            </div>
             <a class="pager-link{% if not thread_page_obj.has_next %} is-disabled{% endif %}"
-               href="{% if thread_page_obj.has_next %}?page={{ thread_page_obj.next_page_number }}{% else %}#{% endif %}"
-               data-page="next">
-                Next ›
-            </a>
+               href="{% if thread_page_obj.has_next %}?page={{ thread_page_obj.next_page_number }}#thread-list{% else %}#{% endif %}"
+               data-page="next">Next ›</a>
+            <a class="pager-link{% if thread_page_obj.number == thread_page_obj.paginator.num_pages %} is-disabled{% endif %}"
+               href="{% if thread_page_obj.number < thread_page_obj.paginator.num_pages %}?page={{ thread_page_obj.paginator.num_pages }}#thread-list{% else %}#{% endif %}"
+               data-page="last">&gt;|</a>
+            <span class="pager-status">Page {{ thread_page_obj.number }} of {{ thread_page_obj.paginator.num_pages }}</span>
             <form class="pager-form" method="get" action="">
                 <label for="thread-page-select-footer" class="sr-only">Jump to page</label>
                 <select id="thread-page-select-footer" name="page" data-pagination-select>

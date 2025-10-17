@@ -61,7 +61,7 @@
         {% if acting_as_organic %}
           <a href="{% url 'forum:board_list' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'board_list' %}is-active{% endif %}">Boards</a>
           <a href="{% url 'forum:who' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'who' %}is-active{% endif %}">Presence&nbsp;Map</a>
-          <a href="{% url 'forum:oi_control_panel' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'oi_control_panel' %}is-active{% endif %}">Control&nbsp;Panel</a>
+          <a href="{% url 'forum:oi_control_panel' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'oi_control_panel' %}is-active{% endif %}">User-Control Panel</a>
         {% else %}
           <a href="{% url 'forum:dashboard' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}">Dashboard</a>
           <a href="{% url 'forum:board_list' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'board_list' %}is-active{% endif %}">Boards</a>

@@ -1,7 +1,10 @@
-"""Package marker for the forum_simulator project.
+"""Project bootstrap for the forum simulator."""
 
-This file indicates that the `forum_simulator` directory should be treated
-as a Python package.  It does not contain any runtime logic.
-"""
+from __future__ import annotations
 
-__all__: list[str] = []
+try:  # pragma: no cover - Celery optional for tests/local dev
+    from .celery import app as celery_app
+except Exception:  # pragma: no cover - expose a stub when Celery missing
+    celery_app = None
+
+__all__ = ["celery_app"]

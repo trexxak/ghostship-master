@@ -3942,3 +3942,173 @@ pre {
     padding: 6px 8px;
     font-size: 0.82rem;
 }
+
+.oracle-console {
+    display: grid;
+    gap: 16px;
+    background: rgba(12, 21, 16, 0.92);
+    border: 1px solid rgba(111, 228, 179, 0.25);
+    box-shadow: var(--shadow-soft);
+}
+
+.oracle-canvas {
+    width: 100%;
+    max-width: 720px;
+    border-radius: 12px;
+    border: 1px solid rgba(111, 228, 179, 0.2);
+    background: linear-gradient(180deg, rgba(9, 16, 12, 0.9) 0%, rgba(6, 12, 8, 0.9) 100%);
+    box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.55);
+}
+
+.oracle-scrubber {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+}
+
+.oracle-scrubber__label {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-family: var(--font-mono);
+    letter-spacing: 0.08em;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.oracle-scrubber__label input[type="range"] {
+    accent-color: var(--accent);
+    width: clamp(160px, 30vw, 320px);
+}
+
+.oracle-meta {
+    flex: 1 1 320px;
+}
+
+.oracle-meta__grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    margin: 0;
+}
+
+.oracle-meta__grid dt {
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+    margin-bottom: 4px;
+}
+
+.oracle-meta__grid dd {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+.oracle-meta__span {
+    grid-column: 1 / -1;
+}
+
+.specials-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.special-card {
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(111, 228, 179, 0.25);
+    background: rgba(12, 21, 16, 0.82);
+    box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.35);
+}
+
+.special-card h4 {
+    margin: 0 0 6px;
+    font-size: 1rem;
+    color: var(--accent);
+}
+
+.special-card--seance {
+    border-color: rgba(90, 181, 240, 0.35);
+}
+
+.special-card--omen {
+    border-color: rgba(255, 124, 141, 0.35);
+}
+
+.tick-meta {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    margin: 0 0 12px;
+}
+
+.tick-meta dt {
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+    margin-bottom: 2px;
+}
+
+.tick-meta dd {
+    margin: 0;
+}
+
+.tick-config {
+    margin-top: 12px;
+    border: 1px solid rgba(111, 228, 179, 0.25);
+    border-radius: 10px;
+    background: rgba(10, 18, 12, 0.8);
+    padding: 12px 16px;
+}
+
+.tick-config summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.tick-config__body {
+    margin-top: 12px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    max-height: 320px;
+    overflow: auto;
+    background: rgba(5, 10, 8, 0.65);
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(111, 228, 179, 0.15);
+}
+
+.tick-log {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tick-entry {
+    border: 1px solid rgba(111, 228, 179, 0.18);
+    border-radius: 8px;
+    background: rgba(9, 16, 12, 0.78);
+    box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.25);
+    padding: 10px 14px;
+}
+
+.tick-entry summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.tick-entry pre {
+    margin: 10px 0 0;
+    white-space: pre-wrap;
+    font-size: 0.8rem;
+    background: rgba(6, 12, 8, 0.75);
+    border-radius: 6px;
+    padding: 10px;
+    border: 1px solid rgba(111, 228, 179, 0.12);
+}

@@ -37,7 +37,7 @@
         </thead>
         <tbody>
             {% for entry in entries %}
-            <tr>
+            <tr class="presence-row">
                 <td>
                     <a class="ghost-handle role-{{ entry.agent.role }}" href="{% url 'forum:agent_detail' entry.agent.pk %}">
                         @{{ entry.agent.name }}
@@ -57,7 +57,7 @@
                     <span class="meta">—</span>
                     {% endif %}
                 </td>
-                <td>{{ entry.activity|default:"Wandering" }}</td>
+                <td class="presence-activity">{{ entry.activity|default:"Wandering"|lower }}</td>
                 <td>{{ entry.last_seen|date:'H:i' }}</td>
                 {% if acting_as_organic %}
                 <td>

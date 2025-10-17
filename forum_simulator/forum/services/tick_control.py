@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 from django.utils import timezone
 
@@ -153,3 +153,71 @@ def consume_manual_override() -> Dict[str, Any]:
         return {}
     config_service.set_value(MANUAL_OVERRIDE_KEY, "")
     return payload
+
+
+class TickAllocationLimiter:
+    """Constrain AI task allocation while reserving direct message capacity."""
+
+    def __init__(
+        self,
+        *,
+        max_tasks: Optional[int],
+        fallback: int = 4,
+        min_dm_quota: int = 1,
+        priority: Sequence[str] = ("replies", "threads"),
+    ) -> None:
+        self._requested_limit = max_tasks
+        self._fallback = fallback
+        self._min_dm_quota = max(int(min_dm_quota), 0)
+        self._priority: Tuple[str, ...] = tuple(priority)
+
+    def _coerced_limit(self) -> int:
+        try:
+            value = int(self._requested_limit)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            value = None
+        if value is None or value <= 0:
+            try:
+                value = int(self._fallback)
+            except (TypeError, ValueError):
+                value = 0
+        return max(value or 0, 0)
+
+    def limit(self, allocation: Any) -> Any:
+        """Clamp thread/reply counts so at least one DM can be scheduled."""
+
+        max_total = self._coerced_limit()
+        if max_total <= 0:
+            return allocation
+
+        requested_dm = getattr(allocation, "private_messages", 0) or 0
+        try:
+            requested_dm = int(requested_dm)
+        except (TypeError, ValueError):
+            requested_dm = 0
+        requested_dm = max(requested_dm, 0)
+
+        reserved_for_dm = min(requested_dm, self._min_dm_quota)
+        remaining = max_total
+
+        for attr in self._priority:
+            current = getattr(allocation, attr, 0) or 0
+            try:
+                current = int(current)
+            except (TypeError, ValueError):
+                current = 0
+            current = max(current, 0)
+
+            if remaining <= reserved_for_dm:
+                allowed = 0
+            else:
+                allowed = min(current, max(remaining - reserved_for_dm, 0))
+
+            setattr(allocation, attr, allowed)
+            remaining = max(remaining - allowed, 0)
+
+        dm_allowed = min(requested_dm, max(remaining, 0))
+        setattr(allocation, "private_messages", dm_allowed)
+        return allocation
+
+    __call__ = limit

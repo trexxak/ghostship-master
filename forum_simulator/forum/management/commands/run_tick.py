@@ -1098,32 +1098,12 @@ class Command(BaseCommand):
             }
         )
         max_ai_tasks = config_service.get_int("AI_TASKS_PER_TICK", 4)
-        # Limit total tasks
-        def _limit_generation_actions(allocation, max_tasks: int):
-            try:
-                max_total = int(max_tasks)
-            except (TypeError, ValueError):
-                max_total = 4
-            if max_total is None or max_total <= 0:
-                max_total = 4
-            min_dm_quota = 1
-            requested_dm = max(int(getattr(allocation, "private_messages", 0) or 0), 0)
-            reserved_for_dm = min(requested_dm, min_dm_quota)
-            priority = ("replies", "threads")
-            remaining = max_total
-            for attr in priority:
-                current = getattr(allocation, attr, 0) or 0
-                current = int(current)
-                if remaining <= reserved_for_dm:
-                    allowed = 0
-                else:
-                    allowed = min(current, remaining - reserved_for_dm)
-                setattr(allocation, attr, allowed)
-                remaining -= allowed
-            dm_allowed = min(requested_dm, max(remaining, 0))
-            setattr(allocation, "private_messages", dm_allowed)
-            return allocation
-        allocation = _limit_generation_actions(allocation, max_ai_tasks)
+        limiter = tick_control.TickAllocationLimiter(
+            max_tasks=max_ai_tasks,
+            fallback=4,
+            min_dm_quota=1,
+        )
+        allocation = limiter.limit(allocation)
 
         # Disable random registrations if configured
         if DISABLE_RANDOM_PROFILES:

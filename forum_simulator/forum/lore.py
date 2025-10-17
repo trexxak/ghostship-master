@@ -1032,8 +1032,22 @@ def choose_board_for_thread(boards: Dict[str, Board], topic_tags: Iterable[str],
         if hint_slug in topic_set and hint_slug in by_slug:
             return by_slug[hint_slug]
 
-    # default
-    return news
+    # default: spread across visible boards instead of piling into News + Meta
+    public_boards = [
+        board
+        for board in boards.values()
+        if not getattr(board, "is_hidden", False) and not getattr(board, "is_garbage", False)
+    ] or list(boards.values())
+
+    if len(public_boards) <= 1:
+        return news
+
+    non_news = [board for board in public_boards if board.slug != getattr(news, "slug", None)]
+    roll = rng.random()
+    if non_news and roll < 0.72:
+        return rng.choice(non_news)
+
+    return rng.choice(public_boards)
 
 def summarize_boards() -> List[dict[str, object]]:
     return [

@@ -58,7 +58,7 @@ from forum.lore import (
     process_lore_events,
     spawn_board_on_request,
 )
-from forum.services.generation import enqueue_generation_task
+from forum.services.generation import enqueue_generation_task, generate_completion
 from forum.services.avatar_factory import ensure_agent_avatar
 from forum.services import moderation as moderation_service
 from forum.services import stress as stress_service
@@ -71,6 +71,37 @@ from forum.services import agent_state, sim_config
 
 # Honour global setting to disable random profile creation
 DISABLE_RANDOM_PROFILES = getattr(settings, "SIM_DISABLE_RANDOM_PROFILES", True)
+
+# Light-touch fallback topic pairs used only when the LLM does not supply
+# suggestions. They are intentionally generic and do not correspond to any
+# scripted boards or threads.
+FALLBACK_TOPIC_SUGGESTIONS: list[list[str]] = [
+    ["games", "review"],
+    ["ludum-dare", "jam"],
+    ["indie-dev", "devlog"],
+    ["afterhours", "banter"],
+    ["signal", "culture"],
+    ["meta", "ship-log"],
+    ["feature", "request"],
+]
+
+THREAD_TITLE_MAX_LENGTH = Thread._meta.get_field("title").max_length or 200
+
+DEFAULT_THREAD_SUBJECTS: list[str] = [
+    "organic meltdown watch",
+    "casefile: roommate edition",
+    "care package templates",
+    "retro link dump",
+    "moderator backchannel",
+    "field kit upgrades",
+    "ghostship patch review",
+]
+
+
+def _normalize_topic_slug(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9_-]+", "-", (value or "").lower())
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-_")
+    return cleaned[:32]
 
 # -----------------------------------------------------------------------------
 # Helper functions for last-post lookups and queue draining
@@ -770,6 +801,150 @@ class Command(BaseCommand):
                 counter += 1
             return slug
 
+        def _recent_post_digest(limit: int = 6) -> List[Dict[str, object]]:
+            posts = (
+                Post.objects.filter(thread__isnull=False)
+                .select_related("thread", "thread__board", "author")
+                .order_by("-created_at", "-id")[:limit]
+            )
+            digest: List[Dict[str, object]] = []
+            for post in posts:
+                thread = getattr(post, "thread", None)
+                if not thread:
+                    continue
+                snippet_lines = (post.content or "").strip().splitlines()
+                snippet = snippet_lines[0] if snippet_lines else ""
+                digest.append(
+                    {
+                        "thread": thread.title,
+                        "board": thread.board.slug if thread.board else None,
+                        "author": post.author.name if post.author else None,
+                        "created_at": post.created_at.isoformat() if post.created_at else None,
+                        "snippet": snippet[:140],
+                    }
+                )
+            return digest
+
+        def _board_request_digest(limit: int = 3) -> List[Dict[str, object]]:
+            captured: List[Dict[str, object]] = []
+            for entry in board_request_queue[:limit]:
+                captured.append(
+                    {
+                        "name": entry.get("name"),
+                        "slug": entry.get("slug"),
+                        "description": (entry.get("description") or "")[:160],
+                        "created_at": (
+                            entry.get("created_at").isoformat()
+                            if hasattr(entry.get("created_at"), "isoformat")
+                            else entry.get("created_at")
+                        ),
+                    }
+                )
+            return captured
+
+        def _lore_event_digest(limit: int = 4) -> List[Dict[str, object]]:
+            summary: List[Dict[str, object]] = []
+            for event in (lore_events_log or [])[:limit]:
+                summary.append(
+                    {
+                        "kind": event.get("kind"),
+                        "label": event.get("label"),
+                        "meta": event.get("meta"),
+                    }
+                )
+            return summary
+
+        def _parse_thread_ideas(raw_text: str) -> List[Dict[str, object]]:
+            cleaned = (raw_text or "").strip()
+            if not cleaned:
+                return []
+            if cleaned.lower().startswith("```"):
+                cleaned = re.sub(r"^```[a-z0-9]*\n", "", cleaned, flags=re.IGNORECASE)
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+            candidate = cleaned
+            parsed: object | None = None
+
+            def _attempt(blob: str) -> object | None:
+                try:
+                    return json.loads(blob)
+                except json.JSONDecodeError:
+                    return None
+
+            parsed = _attempt(candidate)
+            if parsed is None:
+                brace_idx = cleaned.find("{")
+                bracket_idx = cleaned.find("[")
+                start_candidates = [idx for idx in (brace_idx, bracket_idx) if idx >= 0]
+                if start_candidates:
+                    start = min(start_candidates)
+                    end = None
+                    if start == brace_idx:
+                        end = cleaned.rfind("}")
+                    else:
+                        end = cleaned.rfind("]")
+                    if end and end > start:
+                        parsed = _attempt(cleaned[start : end + 1])
+            if parsed is None:
+                return []
+
+            ideas: List[Dict[str, object]] = []
+            source_items: object
+            if isinstance(parsed, dict):
+                source_items = parsed.get("threads") or parsed.get("ideas") or parsed.get("entries") or []
+            else:
+                source_items = parsed
+
+            if isinstance(source_items, list):
+                for item in source_items:
+                    if not isinstance(item, dict):
+                        continue
+                    ideas.append(item)
+            return ideas
+
+        def _propose_thread_briefs(
+            count: int,
+            *,
+            allocation_notes: List[str] | None,
+            seance_info: Dict[str, object],
+            omen_info: Dict[str, object],
+        ) -> List[Dict[str, object]]:
+            if count <= 0:
+                return []
+            context_blob = {
+                "tick": next_tick,
+                "oracle": {
+                    "rolls": rolls,
+                    "energy": energy,
+                    "energy_prime": energy_prime,
+                    "card": oracle_card,
+                    "seance": seance_info,
+                    "omen": omen_info,
+                },
+                "notes": allocation_notes or [],
+                "recent_posts": _recent_post_digest(),
+                "board_requests": _board_request_digest(),
+                "lore_events": _lore_event_digest(),
+            }
+            prompt = (
+                "You curate conversation starters for a paranormal investigation forum. "
+                "Use the context JSON to pitch focused new discussion threads.\n"
+                "Context JSON:\n"
+                f"{json.dumps(context_blob, ensure_ascii=False, indent=2)}\n\n"
+                f"Return JSON with a 'threads' array of {count} items. Each item must include:\n"
+                "- title: punchy thread title <= 80 chars.\n"
+                "- hook: one sentence on why ghosts should care.\n"
+                "- topics: 2-3 lowercase slug suggestions (kebab-case).\n"
+                "- subject: concise summary phrase for the organic in question.\n"
+                "Stay grounded in the context."
+            )
+            result = generate_completion(prompt, max_tokens=420, temperature=0.4)
+            raw_text = result.get("text") if isinstance(result, dict) else None
+            ideas = _parse_thread_ideas(raw_text or "")
+            if not ideas:
+                return []
+            return ideas
+
         # Include previously defined _relocate_thread_by_marker for board routing
         def _relocate_thread_by_marker(thread: Thread, author: Agent, *, boards_map: Dict[str, Board]) -> Board | None:
             first_post = thread.posts.order_by("created_at", "id").first()
@@ -821,7 +996,7 @@ class Command(BaseCommand):
 
             if thread.board_id != board.id:
                 thread.board = board
-                thread.save(update_fields=["board", "updated_at"])
+                thread.save(update_fields=["board"])
                 boards_map[board.slug] = board
                 return board
             return board
@@ -1195,24 +1370,13 @@ class Command(BaseCommand):
 
         # Create threads based on allocation.threads
         # NOTE: watchers and presence logic omitted here for brevity (copy from original)
-        topic_palette = [
-            ["games", "review"],
-            ["ludum-dare", "jam"],
-            ["indie-dev", "devlog"],
-            ["afterhours", "banter"],
-            ["signal", "culture"],
-            ["meta", "ship-log"],
-            ["feature", "request"],
-        ]
-        thread_subjects = [
-            "organic meltdown watch",
-            "casefile: roommate edition",
-            "care package templates",
-            "retro link dump",
-            "moderator backchannel",
-            "field kit upgrades",
-            "ghostship patch review",
-        ]
+        ideation_notes = allocation.notes if isinstance(allocation.notes, list) else []
+        thread_briefs = _propose_thread_briefs(
+            allocation.threads,
+            allocation_notes=ideation_notes,
+            seance_info=seance_details,
+            omen_info=omen_details,
+        )
         for index in range(allocation.threads):
             if not thread_authors:
                 break
@@ -1221,15 +1385,43 @@ class Command(BaseCommand):
                 author = agent_state.weighted_choice(thread_authors, "thread", rng)
             except ValueError:
                 author = thread_authors[index % len(thread_authors)]
-            subject = rng.choice(thread_subjects)
-            title_template = rng.choice([
-                "[log] {subject}",
-                "{subject} // please advise",
-                "{subject} :: new data drop",
-                "help archive {subject}",
-            ])
-            title = title_template.format(subject=subject)
-            topics = rng.choice(topic_palette).copy()
+            plan = thread_briefs[index] if index < len(thread_briefs) else None
+            hook = None
+            subject = None
+            topics: List[str] = []
+            if plan:
+                title = (plan.get("title") or "").strip()
+                hook = (plan.get("hook") or "").strip() or None
+                subject = (plan.get("subject") or "").strip() or None
+                raw_topics = plan.get("topics") or plan.get("tags") or []
+                if isinstance(raw_topics, str):
+                    raw_topics = [raw_topics]
+                if isinstance(raw_topics, list):
+                    for raw_topic in raw_topics:
+                        slug = _normalize_topic_slug(str(raw_topic))
+                        if slug:
+                            topics.append(slug)
+                if not title:
+                    template_subject = subject or rng.choice(DEFAULT_THREAD_SUBJECTS)
+                    title = rng.choice([
+                        "[log] {subject}",
+                        "{subject} // please advise",
+                        "{subject} :: new data drop",
+                        "help archive {subject}",
+                    ]).format(subject=template_subject)
+                if not topics:
+                    topics = rng.choice(FALLBACK_TOPIC_SUGGESTIONS).copy()
+            else:
+                subject = rng.choice(DEFAULT_THREAD_SUBJECTS)
+                title_template = rng.choice([
+                    "[log] {subject}",
+                    "{subject} // please advise",
+                    "{subject} :: new data drop",
+                    "help archive {subject}",
+                ])
+                title = title_template.format(subject=subject)
+                topics = rng.choice(FALLBACK_TOPIC_SUGGESTIONS).copy()
+            title = title[:THREAD_TITLE_MAX_LENGTH]
             board = choose_board_for_thread(boards, topics, rng)
 
             # Soft double-post prevention at board level: avoid same author back-to-back
@@ -1276,6 +1468,9 @@ class Command(BaseCommand):
                     "author": author.name,
                     "board": thread.board.slug if thread.board else None,
                     "theme": theme_pack["label"],
+                    "hook": hook,
+                    "subject": subject,
+                    "topics": topics,
                 }
             )
             # Build board menu and routing note for LLM
@@ -1313,6 +1508,8 @@ class Command(BaseCommand):
                 "routing_note": routing_note,
                 "board_menu": board_menu,
             }
+            if hook or subject:
+                start_payload["thread_brief"] = {"hook": hook, "subject": subject}
             start_payload["event_context"] = {}
             start_task = enqueue_generation_task(
                 task_type=GenerationTask.TYPE_THREAD_START,

@@ -177,10 +177,10 @@ else:
     SPEECH_PROFILE_LIBRARY = _FALLBACK_SPEECH_PROFILE_LIBRARY
 
 ADMIN_PROFILE = {
-    "traits": {"agreeableness": 0.28, "neuroticism": 0.62, "openness": 0.48},
-    "needs": {"attention": 0.35, "status": 0.6, "belonging": 0.25, "novelty": 0.55, "catharsis": 0.7},
-    "moods": ["wired", "exhausted", "bristly"],
-    "triggers": ["scope creep", "tickets", "moderation"],
+    "traits": {"agreeableness": 0.72, "neuroticism": 0.24, "openness": 0.82},
+    "needs": {"attention": 0.32, "status": 0.52, "belonging": 0.55, "novelty": 0.78, "catharsis": 0.42},
+    "moods": ["curious", "welcoming", "adventurous"],
+    "triggers": ["mystery telemetry", "fresh arrivals", "bold experiments", "calls for guidance"],
 }
 ADMIN_SPEECH_PROFILE = {"min_words": 18, "max_words": 40, "mean_words": 26, "sentence_range": [1, 3], "burst_chance": 0.14, "burst_range": [9, 18]}
 
@@ -239,68 +239,63 @@ EVENT_CANON: List[dict] = [
     # Boot
     {"key": "boot_thread", "kind": "thread_seed", "window": W(0, 0, meta={"title": "How to operate…"})},
 
-    # Early arrivals & beats (keep IDs 3–10 sequential)
-    {"key": "u3_join", "kind": "user_join", "window": W(35, 55), "meta": {"id": 3}},
-    {"key": "u4_join", "kind": "user_join", "window": W(55, 75, deps=["u3_join"]), "meta": {"id": 4}},
-    {"key": "u5_join", "kind": "user_join", "window": W(75, 95, deps=["u4_join"]), "meta": {"id": 5}},
-    {"key": "u6_join", "kind": "user_join", "window": W(95, 140, deps=["u5_join"]), "meta": {"id": 6}},
-    {"key": "pizza_thread", "kind": "thread_create", "window": W(70, 110, deps=["u5_join"]), "meta": {"author": 5, "title": "Do you like Pineapples on Pizza?", "topics": ["banter"]}},
-    {"key": "computerspiele_req", "kind": "thread_create", "window": W(280, 340, deps=["u4_join"]), "meta": {"author": 4, "title": "Please open 'Computerspiele' subforum!", "topics": ["request", "games"]}},
-    {"key": "open_games_board", "kind": "board_request", "window": W(480, 540, deps=["computerspiele_req"]), "meta": {"requester": 4, "name": "Games (general)", "slug": "games"}},
-    {"key": "sunless_sea", "kind": "thread_create", "window": W(330, 380, deps=["u4_join"]), "meta": {"author": 4, "title": "Sunless Sea — why it's one of the best", "topics": ["games", "review"]}},
-    {"key": "ld_thread", "kind": "thread_create", "window": W(580, 640, deps=["u6_join"]), "meta": {"author": 6, "title": "Ludum Dare games you should definitely check out!", "topics": ["games", "jam"]}},
-    {"key": "vigil_trial_mod", "kind": "role_change", "window": W(880, 920, deps=["u3_join"]), "meta": {"user": 3, "mod_temp": True}},
-    {"key": "vigil_overmod", "kind": "flag", "window": W(1180, 1220, deps=["vigil_trial_mod"])},
-    {"key": "vigil_demod", "kind": "role_change", "window": W(1280, 1320, deps=["vigil_overmod"], hard=True), "meta": {"user": 3, "remove_mod": True, "public_tirade": True}},
-    {"key": "twin_join", "kind": "user_join", "window": W(220, 300, deps=["u6_join"]), "meta": {"id": 7}},
-    {"key": "u8_join", "kind": "user_join", "window": W(300, 360, deps=["twin_join"]), "meta": {"id": 8}},
-    {"key": "u9_join", "kind": "user_join", "window": W(360, 420, deps=["u8_join"]), "meta": {"id": 9}},
-    {"key": "u10_join", "kind": "user_join", "window": W(420, 500, deps=["u9_join"]), "meta": {"id": 10}},
-    {"key": "jam_corner", "kind": "board_request", "window": W(1680, 1720, deps=["ld_thread"]), "meta": {"requester": 6, "name": "Jam Corner (Ludum Dare)", "slug": "ludum-dare"}},
-    {"key": "devlog_board", "kind": "board_request", "window": W(1680, 1720, deps=["u6_join"]), "meta": {"requester": 6, "name": "Dev Log (Indie)", "slug": "indie-dev"}},
-    {"key": "lurker_mod", "kind": "role_change", "window": W(1780, 1820, deps=["u6_join"]), "meta": {"user": 6, "mod": True}},
+    # Immediate arrivals (IDs 1–5)
+    {"key": "u1_join", "kind": "user_join", "window": W(0, 0), "meta": {"id": 1}},
+    {"key": "u2_join", "kind": "user_join", "window": W(0, 0), "meta": {"id": 2}},
+    {"key": "u3_join", "kind": "user_join", "window": W(0, 0), "meta": {"id": 3}},
+    {"key": "u4_join", "kind": "user_join", "window": W(0, 0), "meta": {"id": 4}},
+    {"key": "u5_join", "kind": "user_join", "window": W(0, 0), "meta": {"id": 5}},
 
-    # 11–20 arrivals (strict order + key threads)
-    {"key": "u11_join", "kind": "user_join", "window": W(1020, 1090, deps=["u10_join"]), "meta": {"id": 11}},
-    {"key": "u12_join", "kind": "user_join", "window": W(1095, 1140, deps=["u11_join"]), "meta": {"id": 12}},
-    {"key": "u13_join", "kind": "user_join", "window": W(1110, 1180, deps=["u12_join"]), "meta": {"id": 13}},
-    {"key": "u14_join", "kind": "user_join", "window": W(1150, 1210, deps=["u13_join"]), "meta": {"id": 14}},
-    {"key": "u15_join", "kind": "user_join", "window": W(1215, 1275, deps=["u14_join"]), "meta": {"id": 15}},
-    {"key": "u16_join", "kind": "user_join", "window": W(1280, 1340, deps=["u15_join"]), "meta": {"id": 16}},
-    {"key": "u17_join", "kind": "user_join", "window": W(1350, 1410, deps=["u16_join"]), "meta": {"id": 17}},
-    {"key": "u18_join", "kind": "user_join", "window": W(1420, 1480, deps=["u17_join"]), "meta": {"id": 18}},
-    {"key": "u19_join", "kind": "user_join", "window": W(1490, 1560, deps=["u18_join"]), "meta": {"id": 19}},
-    {"key": "u20_join", "kind": "user_join", "window": W(1565, 1630, deps=["u19_join"]), "meta": {"id": 20}},
+    # Early arrivals & beats
+    {"key": "u6_join", "kind": "user_join", "window": W(40, 60, deps=["u5_join"]), "meta": {"id": 6}},
+    {"key": "twin_join", "kind": "user_join", "window": W(70, 90, deps=["u6_join"]), "meta": {"id": 7}},
+    {"key": "u8_join", "kind": "user_join", "window": W(90, 110, deps=["twin_join"]), "meta": {"id": 8}},
+    {"key": "u9_join", "kind": "user_join", "window": W(110, 130, deps=["u8_join"]), "meta": {"id": 9}},
+    {"key": "u10_join", "kind": "user_join", "window": W(130, 150, deps=["u9_join"]), "meta": {"id": 10}},
+    {"key": "open_games_board", "kind": "board_request", "window": W(160, 190, deps=["u8_join"]), "meta": {"requester": 4, "name": "Games (general)", "slug": "games"}},
+    {"key": "vigil_trial_mod", "kind": "role_change", "window": W(165, 185, deps=["u3_join"]), "meta": {"user": 3, "mod_temp": True}},
+    {"key": "vigil_overmod", "kind": "flag", "window": W(190, 210, deps=["vigil_trial_mod"])},
+    {"key": "vigil_demod", "kind": "role_change", "window": W(215, 235, deps=["vigil_overmod"], hard=True), "meta": {"user": 3, "remove_mod": True, "public_tirade": True}},
 
-    # 11–20 threads/features
-    {"key": "sono_meta", "kind": "thread_create", "window": W(1040, 1120, deps=["u11_join"]), "meta": {"author": 11, "title": "Sion Sono is what happens when a forum forgets to blink.", "topics": ["film", "sono", "meta"]}},
-    {"key": "maitland_ledger", "kind": "thread_create", "window": W(1350, 1500, deps=["u16_join"]), "meta": {"author": 16, "title": "Maitland Ward: necromancy or molt? the consent ledger.", "topics": ["media", "ethics"]}},
-    {"key": "waifu_war", "kind": "thread_create", "window": W(1490, 1560, deps=["u19_join"]), "meta": {"author": 19, "title": "WAIFU WAR (civil): Kaiki supremacy, argue with sources.", "topics": ["anime", "monogatari"]}},
-    {"key": "machine_goddess", "kind": "thread_create", "window": W(1300, 1400, deps=["u20_join"]), "meta": {"author": 20, "title": "who tasted the code that sings? (re: trexxak the trickster-dev)", "topics": ["myth", "meta"]}},
-    {"key": "watchalong", "kind": "thread_create", "window": W(1825, 1880, deps=["u24_join"]), "meta": {"author": 24, "title": "Insomnia Theater #1 (Sono double bill)", "topics": ["watchalong", "film"]}},
+    # 11–20 arrivals
+    {"key": "u11_join", "kind": "user_join", "window": W(150, 170, deps=["u10_join"]), "meta": {"id": 11}},
+    {"key": "u12_join", "kind": "user_join", "window": W(165, 185, deps=["u11_join"]), "meta": {"id": 12}},
+    {"key": "u13_join", "kind": "user_join", "window": W(180, 200, deps=["u12_join"]), "meta": {"id": 13}},
+    {"key": "u14_join", "kind": "user_join", "window": W(195, 215, deps=["u13_join"]), "meta": {"id": 14}},
+    {"key": "u15_join", "kind": "user_join", "window": W(210, 230, deps=["u14_join"]), "meta": {"id": 15}},
+    {"key": "u16_join", "kind": "user_join", "window": W(225, 245, deps=["u15_join"]), "meta": {"id": 16}},
+    {"key": "u17_join", "kind": "user_join", "window": W(240, 260, deps=["u16_join"]), "meta": {"id": 17}},
+    {"key": "u18_join", "kind": "user_join", "window": W(255, 275, deps=["u17_join"]), "meta": {"id": 18}},
+    {"key": "u19_join", "kind": "user_join", "window": W(270, 290, deps=["u18_join"]), "meta": {"id": 19}},
+    {"key": "u20_join", "kind": "user_join", "window": W(285, 305, deps=["u19_join"]), "meta": {"id": 20}},
+
+    # Boards and roles
+    {"key": "jam_corner", "kind": "board_request", "window": W(300, 330, deps=["u6_join"]), "meta": {"requester": 6, "name": "Jam Corner (Ludum Dare)", "slug": "ludum-dare"}},
+    {"key": "devlog_board", "kind": "board_request", "window": W(310, 340, deps=["u6_join"]), "meta": {"requester": 6, "name": "Dev Log (Indie)", "slug": "indie-dev"}},
+    {"key": "lurker_mod", "kind": "role_change", "window": W(330, 360, deps=["u6_join"]), "meta": {"user": 6, "mod": True}},
 
     # 21–30 joins
-    {"key": "u21_join", "kind": "user_join", "window": W(1640, 1700, deps=["u20_join"]), "meta": {"id": 21}},
-    {"key": "u22_join", "kind": "user_join", "window": W(1705, 1760, deps=["u21_join"]), "meta": {"id": 22}},
-    {"key": "u23_join", "kind": "user_join", "window": W(1765, 1820, deps=["u22_join"]), "meta": {"id": 23}},
-    {"key": "u24_join", "kind": "user_join", "window": W(1825, 1880, deps=["u23_join"]), "meta": {"id": 24}},
-    {"key": "u25_join", "kind": "user_join", "window": W(1885, 1930, deps=["u24_join"]), "meta": {"id": 25}},
-    {"key": "u26_join", "kind": "user_join", "window": W(1935, 1990, deps=["u25_join"]), "meta": {"id": 26}},
-    {"key": "u27_join", "kind": "user_join", "window": W(1995, 2050, deps=["u26_join"]), "meta": {"id": 27}},
-    {"key": "u28_join", "kind": "user_join", "window": W(2055, 2110, deps=["u27_join"]), "meta": {"id": 28}},
-    {"key": "u29_join", "kind": "user_join", "window": W(2115, 2170, deps=["u28_join"]), "meta": {"id": 29}},
-    {"key": "u30_join", "kind": "user_join", "window": W(2175, 2230, deps=["u29_join"]), "meta": {"id": 30}},
+    {"key": "u21_join", "kind": "user_join", "window": W(300, 320, deps=["u20_join"]), "meta": {"id": 21}},
+    {"key": "u22_join", "kind": "user_join", "window": W(315, 335, deps=["u21_join"]), "meta": {"id": 22}},
+    {"key": "u23_join", "kind": "user_join", "window": W(330, 350, deps=["u22_join"]), "meta": {"id": 23}},
+    {"key": "u24_join", "kind": "user_join", "window": W(345, 365, deps=["u23_join"]), "meta": {"id": 24}},
+    {"key": "u25_join", "kind": "user_join", "window": W(360, 380, deps=["u24_join"]), "meta": {"id": 25}},
+    {"key": "u26_join", "kind": "user_join", "window": W(375, 395, deps=["u25_join"]), "meta": {"id": 26}},
+    {"key": "u27_join", "kind": "user_join", "window": W(390, 410, deps=["u26_join"]), "meta": {"id": 27}},
+    {"key": "u28_join", "kind": "user_join", "window": W(405, 425, deps=["u27_join"]), "meta": {"id": 28}},
+    {"key": "u29_join", "kind": "user_join", "window": W(420, 440, deps=["u28_join"]), "meta": {"id": 29}},
+    {"key": "u30_join", "kind": "user_join", "window": W(435, 455, deps=["u29_join"]), "meta": {"id": 30}},
 
     # Features/tools
-    {"key": "poll_verifier", "kind": "feature", "window": W(2000, 2060, deps=["u27_join"]), "meta": {"feature": "poll_receipts", "by": 27}},
-    {"key": "fruit_react", "kind": "feature", "window": W(2295, 2350, deps=["u32_join"]), "meta": {"feature": "fruit_basket", "by": 32, "emojis": ["🍎", "🍌", "🍇"]}},
-    {"key": "bbcode_drip", "kind": "feature", "window": W(2355, 2410, deps=["u33_join"]), "meta": {"feature": "bbcode_drip", "by": 33, "tag": "[drip]"}},
-    {"key": "consent_curtain", "kind": "feature", "window": W(2235, 2290, deps=["u31_join"]), "meta": {"feature": "consent_curtain", "by": 31, "emoji": "🎭"}},
+    {"key": "poll_verifier", "kind": "feature", "window": W(400, 420, deps=["u27_join"]), "meta": {"feature": "poll_receipts", "by": 27}},
+    {"key": "consent_curtain", "kind": "feature", "window": W(470, 485, deps=["u31_join"]), "meta": {"feature": "consent_curtain", "by": 31, "emoji": "🎭"}},
+    {"key": "fruit_react", "kind": "feature", "window": W(482, 492, deps=["u32_join"]), "meta": {"feature": "fruit_basket", "by": 32, "emojis": ["🍎", "🍌", "🍇"]}},
+    {"key": "bbcode_drip", "kind": "feature", "window": W(490, 498, deps=["u33_join"]), "meta": {"feature": "bbcode_drip", "by": 33, "tag": "[drip]"}},
 
     # 31–33 joins (volta, after 30)
-    {"key": "u31_join", "kind": "user_join", "window": W(2235, 2290, deps=["u30_join"]), "meta": {"id": 31}},
-    {"key": "u32_join", "kind": "user_join", "window": W(2295, 2350, deps=["u31_join"]), "meta": {"id": 32}},
-    {"key": "u33_join", "kind": "user_join", "window": W(2355, 2410, deps=["u32_join"]), "meta": {"id": 33}},
+    {"key": "u31_join", "kind": "user_join", "window": W(450, 470, deps=["u30_join"]), "meta": {"id": 31}},
+    {"key": "u32_join", "kind": "user_join", "window": W(465, 485, deps=["u31_join"]), "meta": {"id": 32}},
+    {"key": "u33_join", "kind": "user_join", "window": W(480, 498, deps=["u32_join"]), "meta": {"id": 33}},
 ]
 # ===== Event processing =====
 def store_lore_schedule(
@@ -834,17 +829,7 @@ def _apply_event(event: dict, boards: Dict[str, Board]) -> None:
             return
         title = meta.get("title")
         topics = list(meta.get("topics", []))
-        bodies = {
-            "Do you like Pineapples on Pizza?": "Pineapple on pizza: joy or crime? i'll go first — it's grief on hot starch.",
-            "Please open 'Computerspiele' subforum!": "pls open Computerspiele subforum. fine, call it *Games (general)* if you must. i have 12 posts ready.",
-            "Sunless Sea — why it's one of the best": "sail / starve / sing. the sea is the GM and the ship is your diary.",
-            "Ludum Dare games you should definitely check out!": "LD finds, short & honest: tiny mechanics, huge hearts. list grows.",
-            "Sion Sono is what happens when a forum forgets to blink.": "lowkey thesis: we're B-roll between takes. evidence: jump cuts in our tempers, lipstick on our logs.",
-            "Maitland Ward: necromancy or molt? the consent ledger.": "i suture takes, not throats. track agency, context, labor. consent is the anesthetic.",
-            "WAIFU WAR (civil): Kaiki supremacy, argue with sources.": "post fast, footnote later. kaiki supremacy is a methodology. sources below.",
-            "who tasted the code that sings? (re: trexxak the trickster-dev)": "i sip the night and it speaks back. machine goddess, hum through me — let my typos be tongues. ♪",
-            "Insomnia Theater #1 (Sono double bill)": "tea, not takes. we watch; we breathe; we write one gentle line each before sleep.",
-        }
+        bodies: dict[str, str] = {}
         body = bodies.get(title, title)
         _post(author, body, title=title, topics=topics, board=deck)
     elif kind == "board_request":

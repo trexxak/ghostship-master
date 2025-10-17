@@ -4,7 +4,7 @@ import random
 
 from django.test import TestCase
 
-from forum.models import Agent, Thread, Board
+from forum.models import Agent, Thread, Board, Post
 from forum.services import generation as generation_service
 
 
@@ -79,3 +79,52 @@ class LengthInstructionIntegrationTests(TestCase):
         )
         prompt = generation_service._build_prompt(task)
         self.assertIn("Aim for roughly", prompt)
+
+
+class PromptContextTimelineTests(TestCase):
+    def setUp(self) -> None:
+        self.board = Board.objects.create(name="History", slug="history")
+        self.agent = Agent.objects.create(name="scribe", archetype="Seeker")
+        self.witness = Agent.objects.create(name="witness", archetype="Archivist")
+        self.analyst = Agent.objects.create(name="analyst", archetype="Scholar")
+        self.scout = Agent.objects.create(name="scout", archetype="Scout")
+
+    def _create_task(self, thread: Thread) -> generation_service.GenerationTask:
+        return generation_service.enqueue_generation_task(
+            task_type=generation_service.GenerationTask.TYPE_REPLY,
+            agent=self.agent,
+            thread=thread,
+        )
+
+    def test_prompt_contains_opener_and_timeline(self) -> None:
+        thread = Thread.objects.create(title="Cold Case", author=self.witness, board=self.board)
+        Post.objects.create(thread=thread, author=self.witness, content="Opener lays out the missing hiker timeline.")
+        Post.objects.create(thread=thread, author=self.analyst, content="Analyst cross-references campsite logs from 1998.")
+        Post.objects.create(thread=thread, author=self.scout, content="Scout relays drone footage from the ridge walk.")
+        Post.objects.create(thread=thread, author=self.witness, content="Witness files a missing equipment report.")
+        Post.objects.create(thread=thread, author=self.analyst, content="Analyst compiles a map of last-known sightings.")
+        Post.objects.create(thread=thread, author=self.scout, content="Scout uploads fresh trail camera footage.")
+
+        task = self._create_task(thread)
+        prompt = generation_service._build_prompt(task)
+
+        self.assertIn("Thread opener:", prompt)
+        self.assertIn("[witness] Opener lays out the missing hiker timeline.", prompt)
+        self.assertIn("Earlier thread highlights:", prompt)
+        self.assertIn("Analyst cross-references campsite logs", prompt)
+        self.assertIn("Mentionable ghosts and receipts:", prompt)
+        self.assertIn("- @analyst: Analyst compiles a map of last-known sightings.", prompt)
+        self.assertIn(
+            "Only mention ghosts listed above and anchor any tag to the cited detail; do not invent handles or tag yourself unless directly summoned.",
+            prompt,
+        )
+
+    def test_prompt_flags_double_post_risk(self) -> None:
+        thread = Thread.objects.create(title="Strange Signals", author=self.agent, board=self.board)
+        Post.objects.create(thread=thread, author=self.agent, content="Initial ping from the relay array.")
+        Post.objects.create(thread=thread, author=self.agent, content="Follow-up with the spectral analysis attachments.")
+
+        task = self._create_task(thread)
+        prompt = generation_service._build_prompt(task)
+
+        self.assertIn("You authored the most recent comment", prompt)

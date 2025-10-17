@@ -177,10 +177,10 @@ else:
     SPEECH_PROFILE_LIBRARY = _FALLBACK_SPEECH_PROFILE_LIBRARY
 
 ADMIN_PROFILE = {
-    "traits": {"agreeableness": 0.28, "neuroticism": 0.62, "openness": 0.48},
-    "needs": {"attention": 0.35, "status": 0.6, "belonging": 0.25, "novelty": 0.55, "catharsis": 0.7},
-    "moods": ["wired", "exhausted", "bristly"],
-    "triggers": ["scope creep", "tickets", "moderation"],
+    "traits": {"agreeableness": 0.72, "neuroticism": 0.24, "openness": 0.82},
+    "needs": {"attention": 0.32, "status": 0.52, "belonging": 0.55, "novelty": 0.78, "catharsis": 0.42},
+    "moods": ["curious", "welcoming", "adventurous"],
+    "triggers": ["mystery telemetry", "fresh arrivals", "bold experiments", "calls for guidance"],
 }
 ADMIN_SPEECH_PROFILE = {"min_words": 18, "max_words": 40, "mean_words": 26, "sentence_range": [1, 3], "burst_chance": 0.14, "burst_range": [9, 18]}
 

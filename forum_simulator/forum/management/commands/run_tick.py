@@ -636,19 +636,17 @@ class Command(BaseCommand):
             if not deck:
                 return []
             lookback = moment - timedelta(days=7)
-            topic_filter = (
-                models.Q(topics__contains=["request"])
-                | models.Q(topics__contains=["requests"])
-                | models.Q(topics__contains=["board-request"])
-            )
+            desired_topics = {"request", "requests", "board-request"}
             threads = (
                 Thread.objects.filter(board=deck)
-                .filter(topic_filter)
                 .filter(created_at__gte=lookback)
-                .order_by("created_at")
-            )[:limit]
+                .order_by("-created_at", "-id")
+            )
             suggestions: List[Dict[str, object]] = []
             for thread in threads:
+                topics = thread.topics or []
+                if not any(topic in desired_topics for topic in topics):
+                    continue
                 first_post = thread.posts.order_by("created_at", "id").first()
                 if not first_post:
                     continue
@@ -673,6 +671,8 @@ class Command(BaseCommand):
                         "created_at": first_post.created_at,
                     }
                 )
+                if len(suggestions) >= limit:
+                    break
             return suggestions
 
         def _requests_from_signal() -> List[Dict[str, object]]:

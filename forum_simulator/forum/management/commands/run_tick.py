@@ -337,10 +337,131 @@ class Command(BaseCommand):
         last_tick = TickLog.objects.order_by("-tick_number").first()
         next_tick = 1 if last_tick is None else last_tick.tick_number + 1
 
-        # functions compose_oi_post, compose_ghost_reply, compose_oi_dm, compose_peer_dm,
-        # _limit_generation_actions, etc. remain unchanged from original and are omitted
-        # here for brevity. They should be copied from the original run_tick
-        # implementation. For this answer, we focus on the modifications below.
+        # Helper routines largely mirrored from the original ``run_tick`` command.
+
+        def compose_oi_post() -> str:
+            template = rng.choice(TREXXAK_POST_TEMPLATES)
+            return template.format(
+                ping=rng.randint(120, 999),
+                observation=rng.choice(TREXXAK_OBSERVATIONS),
+                request=rng.choice(TREXXAK_REQUESTS),
+                prompt=rng.choice(TREXXAK_PROMPTS),
+                emoji=rng.choice(TREXXAK_EMOJI),
+            )
+
+        def compose_ghost_reply(style: str) -> str:
+            bank = GHOST_REPLY_LIBRARY.get(style, [])
+            if not bank:
+                bank = sum(GHOST_REPLY_LIBRARY.values(), [])
+            return rng.choice(bank)
+
+        def compose_oi_dm(target: str) -> str:
+            template = rng.choice(TREXXAK_DM_TEMPLATES)
+            return template.format(target=target)
+
+        def compose_peer_dm(
+            sender: Agent,
+            recipient: Agent,
+            *,
+            threads: list[Thread],
+            topics: list[str],
+        ) -> dict[str, object]:
+            scenario_pool = PEER_DM_SCENARIOS
+            if not threads:
+                scenario_pool = [sc for sc in PEER_DM_SCENARIOS if not sc.get("needs_thread")]
+            if not scenario_pool:
+                scenario_pool = PEER_DM_SCENARIOS
+            scenario = rng.choice(scenario_pool)
+            thread_context: Thread | None = None
+            if scenario.get("needs_thread") and threads:
+                thread_context = rng.choice(threads)
+            topic = rng.choice(topics) if topics else "meta"
+            topic_label = str(topic).replace("_", " ").replace("-", " ")
+            instruction = scenario["instruction"].format(
+                recipient=recipient.name,
+                sender=sender.name,
+                thread_title=thread_context.title if thread_context else "the latest thread",
+                topic=topic_label,
+            )
+            style_notes = scenario.get("style_notes", "")
+            max_tokens = scenario.get("max_tokens", 150)
+            context: dict[str, object] = {"topic": topic_label}
+            if thread_context:
+                context["thread_title"] = thread_context.title
+                context["thread_slug"] = thread_context.board.slug if thread_context.board else None
+            return {
+                "instruction": instruction,
+                "style_notes": style_notes,
+                "max_tokens": max_tokens,
+                "context": context,
+            }
+
+        def pending_peer_dm_replies(
+            limit: int,
+            *,
+            admin_id: int | None,
+        ) -> list[tuple[Agent, Agent, PrivateMessage]]:
+            if limit <= 0:
+                return []
+            sample_size = max(limit * 6, 18)
+            qs = (
+                PrivateMessage.objects.select_related("sender", "recipient")
+                .order_by("-sent_at")[:sample_size]
+            )
+            seen_pairs: set[tuple[int, int]] = set()
+            replies: list[tuple[Agent, Agent, PrivateMessage]] = []
+            for message in qs:
+                sender = message.sender
+                recipient = message.recipient
+                if sender is None or recipient is None:
+                    continue
+                if sender.role == Agent.ROLE_BANNED or recipient.role == Agent.ROLE_BANNED:
+                    continue
+                conv_key = tuple(sorted((sender.id, recipient.id)))
+                if conv_key in seen_pairs:
+                    continue
+                seen_pairs.add(conv_key)
+                responder = recipient
+                partner = sender
+                if admin_id and responder.id == admin_id:
+                    continue
+                if responder.id == partner.id:
+                    continue
+                replies.append((responder, partner, message))
+                if len(replies) >= limit:
+                    break
+            return replies
+
+        def _latest_admin_threads(
+            admin_agent: Agent,
+            *,
+            limit: int = 6,
+        ) -> list[tuple[Agent, PrivateMessage | None]]:
+            convo: dict[int, tuple[Agent, PrivateMessage | None]] = {}
+            messages = (
+                PrivateMessage.objects.filter(
+                    models.Q(sender=admin_agent) | models.Q(recipient=admin_agent)
+                )
+                .select_related("sender", "recipient")
+                .order_by("-sent_at")[: max(limit * 3, 12)]
+            )
+            for message in messages:
+                partner = message.sender if message.sender_id != admin_agent.id else message.recipient
+                if partner is None:
+                    continue
+                key = partner.id
+                if key not in convo:
+                    convo[key] = (partner, message)
+            ordered = list(convo.values())[:limit]
+            if len(ordered) < limit:
+                supplemental = (
+                    Agent.objects.exclude(id__in=[partner.id for partner, _ in ordered])
+                    .filter(role__in=[Agent.ROLE_MEMBER, Agent.ROLE_MODERATOR])
+                    .order_by("-updated_at")[: max(0, limit - len(ordered))]
+                )
+                for partner in supplemental:
+                    ordered.append((partner, None))
+            return ordered
 
         # DECAY AND PRESENCE REFRESH (same as original)
         def decay_presence() -> None:
@@ -704,6 +825,25 @@ class Command(BaseCommand):
         )
         session_snapshot = activity_service.session_snapshot()
         allocation = activity_service.apply_activity_scaling(allocation, session_snapshot)
+        specials = allocation.special_flags()
+        seance_details = dict(allocation.seance_details or {})
+        omen_details = dict(allocation.omen_details or {})
+        sentiment_bias = float(
+            (seance_details.get("sentiment_bias") or 0.0)
+            + (omen_details.get("sentiment_bias") or 0.0)
+        )
+        toxicity_bias = float(
+            (seance_details.get("toxicity_bias") or 0.0)
+            + (omen_details.get("toxicity_bias") or 0.0)
+        )
+        event_context = {
+            "seance": seance_details.get("slug"),
+            "seance_label": seance_details.get("label"),
+            "omen": omen_details.get("slug"),
+            "omen_label": omen_details.get("label"),
+            "sentiment_bias": round(sentiment_bias, 3),
+            "toxicity_bias": round(toxicity_bias, 3),
+        }
         events.append(
             {
                 "type": "allocation",
@@ -712,7 +852,7 @@ class Command(BaseCommand):
                 "replies": allocation.replies,
                 "private_messages": allocation.private_messages,
                 "moderation_events": allocation.moderation_events,
-                "specials": allocation.special_flags(),
+                "specials": specials,
                 "notes": allocation.notes,
             }
         )
@@ -1078,9 +1218,351 @@ class Command(BaseCommand):
                 action_record["phase"] = "action"
                 decision_trace.append(action_record)
 
-        # At this point, DM tasks, moderation, and other logic follows the original run_tick
-        # For DM tasks, we add a drain call at the very end to flush DM generation
-        # After all DM enqueues (original loops omitted here), call:
+        admin_actor = Agent.objects.filter(role=Agent.ROLE_ADMIN).order_by("id").first()
+
+        planned_replies_total = max(int(allocation.replies or 0), 0)
+        dm_budget = max(0, int(allocation.private_messages or 0))
+
+        welcome_targets: list[Agent] = []
+        if lore_events_log:
+            seen_new: set[int] = set()
+            for lore_event in lore_events_log:
+                if lore_event.get("kind") != "user_join":
+                    continue
+                meta_payload = lore_event.get("meta") or {}
+                newcomer_id = meta_payload.get("id")
+                if not newcomer_id or newcomer_id in seen_new:
+                    continue
+                newbie = Agent.objects.filter(id=newcomer_id).first()
+                if newbie and newbie.role != Agent.ROLE_BANNED:
+                    welcome_targets.append(newbie)
+                    seen_new.add(newcomer_id)
+
+        baseline_target = max(2, planned_replies_total // 2)
+        baseline_target = max(baseline_target, len(threads_created))
+        baseline_target = max(baseline_target, len(welcome_targets))
+        dm_budget = max(dm_budget, baseline_target)
+        dm_budget = min(dm_budget, 20)
+        dm_total_planned = dm_budget
+        dm_slot = 0
+        admin_id = admin_actor.id if admin_actor else None
+
+        recent_threads = list(threads_created)
+        thread_ids = {thread.id for thread in recent_threads if getattr(thread, "id", None)}
+        extra_needed = max(0, 12 - len(recent_threads))
+        if extra_needed:
+            extra_threads_qs = (
+                Thread.objects.filter(is_hidden=False)
+                .order_by("-last_activity_at")
+                .select_related("board", "author")
+            )
+            if thread_ids:
+                extra_threads_qs = extra_threads_qs.exclude(id__in=thread_ids)
+            for thread in extra_threads_qs[:extra_needed]:
+                recent_threads.append(thread)
+        topic_bank = [
+            topic
+            for thread in recent_threads
+            for topic in (thread.topics or [])
+            if topic
+        ]
+        if topic_bank:
+            topic_bank = list(dict.fromkeys(topic_bank))
+        else:
+            topic_bank = ["meta"]
+
+        pending_peer_replies = pending_peer_dm_replies(dm_budget, admin_id=admin_id)
+        for responder, partner, last_message in pending_peer_replies:
+            if dm_budget <= 0:
+                break
+            if responder.role == Agent.ROLE_BANNED:
+                continue
+            excerpt = (last_message.content or "")[:220] if last_message else ""
+            payload = {
+                "tick_number": next_tick,
+                "slot": dm_slot,
+                "instruction": (
+                    f"Reply to {partner.name}'s DM. Extend their point, trade one fresh detail, and "
+                    "invite them to keep the thread alive."
+                ),
+                "max_tokens": 150,
+                "style_notes": "Match the prior tone, reference one shared receipt, and end with a concrete next step.",
+            }
+            if excerpt:
+                payload["recent_message"] = excerpt
+            payload["event_context"] = event_context
+            task = enqueue_generation_task(
+                task_type=GenerationTask.TYPE_DM,
+                agent=responder,
+                recipient=partner,
+                payload=payload,
+            )
+            events.append(
+                {
+                    "type": "private_message_task",
+                    "sender": responder.name,
+                    "recipient": partner.name,
+                    "task_id": task.id,
+                    "mode": "peer_reply",
+                }
+            )
+            dm_budget -= 1
+            dm_slot += 1
+
+        agents_pool = list(allowed_agents)
+
+        if dm_budget and welcome_targets:
+            rng.shuffle(welcome_targets)
+            for newcomer in welcome_targets:
+                if dm_budget <= 0:
+                    break
+                greeter_options = [ghost for ghost in agents_pool if ghost.id != newcomer.id]
+                if not greeter_options:
+                    continue
+                greeter = rng.choice(greeter_options)
+                topic_label = rng.choice(topic_bank or ["meta"])
+                payload = {
+                    "tick_number": next_tick,
+                    "slot": dm_slot,
+                    "instruction": WELCOME_DM_TEMPLATE.format(
+                        recipient=newcomer.name,
+                        topic=topic_label,
+                    ),
+                    "max_tokens": 140,
+                    "style_notes": WELCOME_DM_STYLE,
+                }
+                payload["event_context"] = event_context
+                task = enqueue_generation_task(
+                    task_type=GenerationTask.TYPE_DM,
+                    agent=greeter,
+                    recipient=newcomer,
+                    payload=payload,
+                )
+                events.append(
+                    {
+                        "type": "private_message_task",
+                        "sender": greeter.name,
+                        "recipient": newcomer.name,
+                        "task_id": task.id,
+                        "mode": "welcome_greeting",
+                    }
+                )
+                dm_budget -= 1
+                dm_slot += 1
+
+                if dm_budget <= 0:
+                    break
+                if rng.random() < 0.5:
+                    partner_pool = [
+                        ghost for ghost in agents_pool if ghost.id not in {greeter.id, newcomer.id}
+                    ]
+                    if not partner_pool:
+                        partner_pool = greeter_options
+                    if partner_pool:
+                        partner = rng.choice(partner_pool)
+                        topic_label = rng.choice(topic_bank or ["meta"])
+                        payload = {
+                            "tick_number": next_tick,
+                            "slot": dm_slot,
+                            "instruction": (
+                                f"Introduce yourself to {partner.name} as the new ghost on deck. "
+                                f"Share why the {topic_label} threads hooked you and ask for one pro tip."
+                            ),
+                            "max_tokens": 130,
+                            "style_notes": "Curious and a little awkward is fine; end with a promise to trade receipts soon.",
+                        }
+                        payload["event_context"] = event_context
+                        task = enqueue_generation_task(
+                            task_type=GenerationTask.TYPE_DM,
+                            agent=newcomer,
+                            recipient=partner,
+                            payload=payload,
+                        )
+                        events.append(
+                            {
+                                "type": "private_message_task",
+                                "sender": newcomer.name,
+                                "recipient": partner.name,
+                                "task_id": task.id,
+                                "mode": "welcome_handshake",
+                            }
+                        )
+                        dm_budget -= 1
+                        dm_slot += 1
+
+        if dm_budget and admin_actor:
+            pending_replies = []
+            for partner, last_message in _latest_admin_threads(admin_actor, limit=max(dm_budget, 4)):
+                if last_message and last_message.sender_id != admin_actor.id:
+                    pending_replies.append((partner, last_message))
+            for partner, last_message in pending_replies:
+                if dm_budget <= 0:
+                    break
+                excerpt = (last_message.content or "")[:220] if last_message else ""
+                payload = {
+                    "tick_number": next_tick,
+                    "slot": dm_slot,
+                    "instruction": (
+                        f"Respond to {partner.name}'s latest DM. Stay candid, give them next steps, and "
+                        "sign off like a caffeinated admin."
+                    ),
+                    "max_tokens": 160,
+                    "style_notes": "Match the admin voice: sardonic but helpful. Reference their last message directly.",
+                }
+                if excerpt:
+                    payload["recent_message"] = excerpt
+                payload["event_context"] = event_context
+                task = enqueue_generation_task(
+                    task_type=GenerationTask.TYPE_DM,
+                    agent=admin_actor,
+                    recipient=partner,
+                    payload=payload,
+                )
+                events.append(
+                    {
+                        "type": "private_message_task",
+                        "sender": admin_actor.name,
+                        "recipient": partner.name,
+                        "task_id": task.id,
+                        "mode": "admin_reply",
+                    }
+                )
+                dm_budget -= 1
+                dm_slot += 1
+
+        if dm_budget and admin_actor:
+            annoyers = [ghost for ghost in agents_pool if ghost.id != admin_actor.id]
+            rng.shuffle(annoyers)
+            annoy_count = min(dm_budget, max(1, rng.randint(1, 3)))
+            for _ in range(annoy_count):
+                if dm_budget <= 0 or not annoyers:
+                    break
+                sender = annoyers.pop(0)
+                instruction = "Send t.admin a poke that demands attention and wastes his time."
+                payload = {
+                    "tick_number": next_tick,
+                    "slot": dm_slot,
+                    "instruction": instruction,
+                    "max_tokens": 120,
+                    "style_notes": "Lean into chaotic energy. Reference some minor glitch or rumor to yank the admin's focus.",
+                }
+                payload["event_context"] = event_context
+                task = enqueue_generation_task(
+                    task_type=GenerationTask.TYPE_DM,
+                    agent=sender,
+                    recipient=admin_actor,
+                    payload=payload,
+                )
+                events.append(
+                    {
+                        "type": "private_message_task",
+                        "sender": sender.name,
+                        "recipient": admin_actor.name,
+                        "task_id": task.id,
+                        "mode": "admin_inbox",
+                    }
+                )
+                dm_budget -= 1
+                dm_slot += 1
+
+        organism_agent = Agent.objects.filter(role=Agent.ROLE_ORGANIC).order_by("id").first()
+        if dm_budget and organism_agent:
+            testers = [ghost for ghost in agents_pool if ghost.id != organism_agent.id]
+            rng.shuffle(testers)
+            test_count = min(dm_budget, max(1, rng.randint(1, 2)))
+            for _ in range(test_count):
+                if dm_budget <= 0 or not testers:
+                    break
+                sender = testers.pop(0)
+                payload = {
+                    "tick_number": next_tick,
+                    "slot": dm_slot,
+                    "instruction": "Drop trexxak a DM testing the organic interface. Ask for a weird confirmation or secret handshake.",
+                    "max_tokens": 120,
+                    "style_notes": "Keep it playful, reference the interface as a living shell, and invite a human operator to reply.",
+                }
+                payload["event_context"] = event_context
+                task = enqueue_generation_task(
+                    task_type=GenerationTask.TYPE_DM,
+                    agent=sender,
+                    recipient=organism_agent,
+                    payload=payload,
+                )
+                events.append(
+                    {
+                        "type": "private_message_task",
+                        "sender": sender.name,
+                        "recipient": organism_agent.name,
+                        "task_id": task.id,
+                        "mode": "trexxak_probe",
+                    }
+                )
+                dm_budget -= 1
+                dm_slot += 1
+
+        peer_pool = [ghost for ghost in agents_pool if not admin_actor or ghost.id != admin_actor.id]
+        if len(peer_pool) < 2:
+            peer_pool = agents_pool
+        if dm_budget and len(peer_pool) > 1:
+            rng.shuffle(peer_pool)
+            used_pairs: set[tuple[int, int]] = set()
+            attempts = 0
+            while dm_budget > 0 and attempts < dm_budget * 4:
+                attempts += 1
+                sender = rng.choice(peer_pool)
+                recipient_choices = [ghost for ghost in peer_pool if ghost.id != sender.id]
+                if not recipient_choices:
+                    break
+                recipient = rng.choice(recipient_choices)
+                pair_key = (sender.id, recipient.id)
+                if pair_key in used_pairs:
+                    continue
+                used_pairs.add(pair_key)
+                scenario = compose_peer_dm(sender, recipient, threads=recent_threads, topics=topic_bank)
+                payload = {
+                    "tick_number": next_tick,
+                    "slot": dm_slot,
+                    "instruction": scenario["instruction"],
+                    "max_tokens": scenario["max_tokens"],
+                    "style_notes": scenario["style_notes"],
+                }
+                payload.update(scenario["context"])
+                payload["event_context"] = event_context
+                task = enqueue_generation_task(
+                    task_type=GenerationTask.TYPE_DM,
+                    agent=sender,
+                    recipient=recipient,
+                    payload=payload,
+                )
+                events.append(
+                    {
+                        "type": "private_message_task",
+                        "sender": sender.name,
+                        "recipient": recipient.name,
+                        "task_id": task.id,
+                        "mode": "peer_initiate",
+                    }
+                )
+                dm_budget -= 1
+                dm_slot += 1
+
+        if dm_budget > 0:
+            events.append(
+                {
+                    "type": "dm_manual",
+                    "planned": dm_budget,
+                    "note": "DM quota left unused; operators can jump in manually.",
+                }
+            )
+
+        for entry in events:
+            if entry.get("type") == "allocation":
+                entry["private_messages"] = dm_total_planned
+                break
+
+        allocation.private_messages = 0
+
+        # Drain DM generation tasks synchronously after scheduling
         _drain_queue_for(GenerationTask.TYPE_DM, max_loops=6, batch=12)
 
         # Finally, record events and complete tick

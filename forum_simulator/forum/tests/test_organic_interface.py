@@ -12,6 +12,7 @@ from forum.models import (
     Board,
     Thread,
     Post,
+    PrivateMessage,
     GenerationTask,
     OrganicInteractionLog,
     ThreadWatch,
@@ -161,6 +162,29 @@ class OrganicInterfaceTests(TestCase):
             f'<input type="hidden" name="recipient" value="{self.member.pk}" id="id_recipient">',
             html,
         )
+
+    def test_control_panel_compose_creates_dm(self) -> None:
+        self._activate_organic()
+
+        compose_url = reverse("forum:oi_control_panel")
+        response = self.client.post(
+            compose_url,
+            {
+                "compose_pm": "1",
+                "to": self.member.name,
+                "subject": "Field report",
+                "body": "Operator ping delivered via control panel.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].endswith("#messages:compose"))
+
+        dm = PrivateMessage.objects.latest("id")
+        self.assertEqual(dm.sender_id, self.organism.id)
+        self.assertEqual(dm.recipient_id, self.member.id)
+        self.assertTrue(dm.authored_by_operator)
+        self.assertEqual(dm.content, "Operator ping delivered via control panel.")
 
 
 class CoreStabilityTests(TestCase):

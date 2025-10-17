@@ -1,5 +1,7 @@
 from __future__ import annotations
 from datetime import timedelta
+import math
+import re
 
 from django import forms
 from django.conf import settings
@@ -13,7 +15,6 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
 from django.views.decorators.http import require_http_methods, require_POST
-import math
 
 from .forms import (
     PostReportForm,
@@ -198,6 +199,58 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
         return redirect("forum:mission_board")
 
     avatar_options = _available_avatars(organism)
+    compose_redirect = f"{reverse('forum:oi_control_panel')}#messages:compose"
+
+    if request.method == "POST" and request.POST.get("compose_pm"):
+        raw_recipients = (request.POST.get("to") or "").strip()
+        body = (request.POST.get("body") or "").strip()
+        subject = (request.POST.get("subject") or "").strip()
+
+        handles = [
+            handle
+            for handle in re.split(r"[\s,]+", raw_recipients)
+            if handle
+        ]
+
+        if not handles:
+            messages.error(request, "Specify at least one recipient.")
+            return redirect(compose_redirect)
+
+        if not body:
+            messages.error(request, "Message body cannot be empty.")
+            return redirect(compose_redirect)
+
+        recipients: list[Agent] = []
+        seen_recipient_ids: set[int] = set()
+        for handle in handles:
+            agent = _resolve_agent_handle(handle)
+            if agent is None:
+                messages.error(request, f"No agent found matching '{handle}'.")
+                return redirect(compose_redirect)
+            if agent.role == Agent.ROLE_ORGANIC:
+                messages.error(request, "Cannot direct message the organic operator.")
+                return redirect(compose_redirect)
+            if agent.pk in seen_recipient_ids:
+                continue
+            recipients.append(agent)
+            seen_recipient_ids.add(agent.pk)
+
+        metadata = {"origin": "control_panel"}
+        if subject:
+            metadata["subject"] = subject
+
+        for recipient in recipients:
+            _create_operator_dm(
+                request,
+                recipient=recipient,
+                content=body,
+                extra_metadata=metadata,
+            )
+
+        recipient_names = ", ".join(agent.name for agent in recipients)
+        messages.success(request, f"Message dispatched to {recipient_names}.")
+        return redirect(compose_redirect)
+
     allowed_avatar_values: set[str] = {
         str(entry.get("value"))
         for entry in avatar_options

@@ -55,7 +55,6 @@ from forum.lore import (
     ORGANIC_THREAD_TITLE,
     process_lore_events,
     spawn_board_on_request,
-    _ensure_users_from_canon,
 )
 from forum.services.generation import enqueue_generation_task
 from forum.services.avatar_factory import ensure_agent_avatar
@@ -441,13 +440,6 @@ class Command(BaseCommand):
 
         boards = ensure_core_boards()
         ensure_origin_story(boards)
-        # Seed canonical users (IDs 1-33) at the start of each tick so they exist even if their
-        # scheduled events haven't fired yet. This helps ensure early posts and DMs occur.
-        try:
-            _ensure_users_from_canon()
-        except Exception:
-            # If seeding fails, continue gracefully
-            pass
         lore_events_log = process_lore_events(next_tick, boards)
 
         # Additional helper inside handle for unique slug

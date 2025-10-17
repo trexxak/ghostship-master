@@ -57,6 +57,18 @@ def _canonical_handle(name: str | None) -> str | None:
     return agent.name
 
 
+def _format_post_excerpt(post: Post, *, include_author: bool = True) -> str | None:
+    content = (getattr(post, "content", "") or "").replace("\n", " ").replace("\r", " ").strip()
+    if not content:
+        return None
+    snippet = content[:160]
+    if not include_author:
+        return snippet
+    author = getattr(post, "author", None)
+    author_name = getattr(author, "name", None) or "unknown"
+    return f"[{author_name}] {snippet}"
+
+
 def _sanitize_mentions(task: GenerationTask, content: str) -> str:
     if not content:
         return content
@@ -272,37 +284,76 @@ def _build_prompt(task: GenerationTask) -> str:
         agent_handle_lower = agent.name.lower()
 
     if task.thread:
+        exclude_post_id = task.payload.get("exclude_post_id")
         context.append(f"Thread title: {task.thread.title}")
-        recent_posts_qs = (
-            Post.objects.filter(thread=task.thread, is_placeholder=False)
-            .exclude(id=task.payload.get("exclude_post_id"))
-            .order_by("-created_at")[:3]
+        base_posts = Post.objects.filter(thread=task.thread, is_placeholder=False).exclude(
+            id=exclude_post_id
         )
+
+        recent_posts_qs = base_posts.select_related("author").order_by("-created_at")[:3]
         recent_posts = list(recent_posts_qs)
-        quotes: list[str] = []
+
+        opener_post = (
+            base_posts.select_related("author").order_by("created_at").first()
+        )
+        if opener_post:
+            opener_excerpt = _format_post_excerpt(opener_post)
+            if opener_excerpt:
+                context.append("Thread opener:")
+                context.append(opener_excerpt)
+
+        recent_quotes: list[str] = []
         for post in reversed(recent_posts):
-            excerpt = post.content.replace(
-                "\n", " ").replace("\r", " ").strip()[:160]
+            excerpt = _format_post_excerpt(post)
             if excerpt:
-                quotes.append(f"[{post.author.name}] {excerpt}")
-        if quotes:
+                recent_quotes.append(excerpt)
+        if recent_quotes:
             context.append("Recent comments:")
-            context.extend(quotes)
+            context.extend(recent_quotes)
+
+        timeline_posts: list[Post] = []
+        recent_ids = {post.id for post in recent_posts}
+        if opener_post:
+            recent_ids.add(opener_post.id)
+        timeline_candidates = base_posts.select_related("author").order_by("created_at")
+        for post in timeline_candidates:
+            if post.id in recent_ids:
+                continue
+            timeline_posts.append(post)
+            if len(timeline_posts) >= 3:
+                break
+        if timeline_posts:
+            context.append("Earlier thread highlights:")
+            for post in timeline_posts:
+                excerpt = _format_post_excerpt(post)
+                if excerpt:
+                    context.append(f"- {excerpt}")
+
         topics = task.payload.get("topics") or getattr(
             task.thread, "topics", []) or []
         if topics:
             context.append("Topics: " + ", ".join(topics))
 
         mentionable_handles: set[str] = set()
+        handle_to_excerpt: dict[str, str | None] = {}
         thread_author = getattr(task.thread, "author", None)
         if thread_author and getattr(thread_author, "name", None):
             if not agent_handle_lower or thread_author.name.lower() != agent_handle_lower:
                 mentionable_handles.add(thread_author.name)
+                if thread_author.name not in handle_to_excerpt and opener_post and opener_post.author_id == thread_author.id:
+                    handle_to_excerpt[thread_author.name] = _format_post_excerpt(opener_post, include_author=False)
         for post in recent_posts:
             if post.author_id and getattr(post.author, "name", None):
                 name = post.author.name
                 if not agent_handle_lower or name.lower() != agent_handle_lower:
                     mentionable_handles.add(name)
+                    handle_to_excerpt.setdefault(name, _format_post_excerpt(post, include_author=False))
+        for post in timeline_posts:
+            if post.author_id and getattr(post.author, "name", None):
+                name = post.author.name
+                if not agent_handle_lower or name.lower() != agent_handle_lower:
+                    mentionable_handles.add(name)
+                    handle_to_excerpt.setdefault(name, _format_post_excerpt(post, include_author=False))
         payload_handles = task.payload.get("mention_whitelist") or []
         for handle in payload_handles:
             canonical = _canonical_handle(str(handle))
@@ -310,12 +361,18 @@ def _build_prompt(task: GenerationTask) -> str:
                 mentionable_handles.add(canonical)
         mentionable = sorted(name for name in mentionable_handles if name)
         if mentionable:
-            context.append("Mentionable ghosts: " + ", ".join(mentionable))
-            # Make the whitelist explicit and place it immediately before the instruction so models can't invent handles
-            context.append("Only mention from this list: " +
-                           ", ".join(mentionable))
+            context.append("Mentionable ghosts and receipts:")
+            for handle in mentionable:
+                excerpt = handle_to_excerpt.get(handle)
+                if excerpt:
+                    context.append(f"- @{handle}: {excerpt}")
+                else:
+                    context.append(
+                        f"- @{handle}: no fresh post excerpt available—reference prior intel if you name them."
+                    )
             context.append(
-                "Do not invent or ping unknown names. Skip tagging yourself unless another ghost explicitly calls on you.")
+                "Only mention ghosts listed above and anchor any tag to the cited detail; do not invent handles or tag yourself unless directly summoned."
+            )
 
         theme = task.payload.get("theme")
         if theme:
@@ -340,6 +397,12 @@ def _build_prompt(task: GenerationTask) -> str:
         if task.payload.get("seeded"):
             context.append(
                 "This is the first reply: acknowledge the opener, add one fresh detail about the organic, and invite follow-up evidence.")
+
+        last_post = recent_posts[0] if recent_posts else None
+        if last_post and last_post.author_id == agent.id:
+            context.append(
+                "You authored the most recent comment—open with a light nod to avoid double-posting, or skip it only if it would distract from new intel."
+            )
 
     if task.task_type == GenerationTask.TYPE_REPLY:
         context.append(

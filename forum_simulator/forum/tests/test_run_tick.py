@@ -21,7 +21,7 @@ class RunTickCommandTests(TestCase):
     @mock.patch("forum.management.commands.run_tick.ensure_core_boards", return_value={})
     @mock.patch("forum.management.commands.run_tick.ensure_origin_story")
     @mock.patch("forum.management.commands.run_tick.process_lore_events", return_value=[])
-    @mock.patch("forum.management.commands.run_tick._ensure_users_from_canon")
+    @mock.patch("forum.lore._ensure_users_from_canon")
     @mock.patch("forum.management.commands.run_tick.activity_service.session_snapshot", return_value={})
     @mock.patch(
         "forum.management.commands.run_tick.activity_service.apply_activity_scaling",
@@ -121,6 +121,106 @@ class RunTickCommandTests(TestCase):
         drain_queue_mock.assert_called()
 
     @mock.patch("forum.management.commands.run_tick._drain_queue_for")
+    @mock.patch("forum.management.commands.run_tick.enqueue_generation_task", return_value=SimpleNamespace(id=1))
+    @mock.patch("forum.management.commands.run_tick.choose_board_for_thread")
+    @mock.patch("forum.management.commands.run_tick.tick_control.record_tick_run")
+    @mock.patch("forum.management.commands.run_tick.tick_control.describe_state", return_value={})
+    @mock.patch("forum.management.commands.run_tick.build_energy_profile")
+    @mock.patch("forum.management.commands.run_tick.allocate_actions")
+    @mock.patch("forum.management.commands.run_tick.agent_state.progress_agents", return_value=[{"agent": "Aurora"}])
+    @mock.patch("forum.management.commands.run_tick.ensure_core_boards", return_value={})
+    @mock.patch("forum.management.commands.run_tick.ensure_origin_story")
+    @mock.patch("forum.management.commands.run_tick.process_lore_events", return_value=[])
+    @mock.patch("forum.lore._ensure_users_from_canon")
+    @mock.patch("forum.management.commands.run_tick.activity_service.session_snapshot")
+    @mock.patch(
+        "forum.management.commands.run_tick.activity_service.apply_activity_scaling",
+        side_effect=lambda allocation, snapshot: allocation,
+    )
+    @mock.patch("forum.management.commands.run_tick.config_service.get_int")
+    def test_dm_quota_survives_task_limit(
+        self,
+        get_int_mock,
+        apply_scaling_mock,
+        session_snapshot_mock,
+        ensure_users_mock,
+        process_lore_mock,
+        ensure_origin_mock,
+        ensure_boards_mock,
+        progress_agents_mock,
+        allocate_actions_mock,
+        build_energy_profile_mock,
+        describe_state_mock,
+        record_tick_run_mock,
+        choose_board_mock,
+        enqueue_task_mock,
+        drain_queue_mock,
+    ) -> None:
+        def fake_get_int(key, default=0):
+            if key == "AI_TASKS_PER_TICK":
+                return 1
+            return default
+
+        get_int_mock.side_effect = fake_get_int
+
+        admin = Agent.objects.create(name="t.admin", archetype="Admin", role=Agent.ROLE_ADMIN)
+        greeter = Agent.objects.create(name="Aurora", archetype="Scout", role=Agent.ROLE_MEMBER)
+        partner = Agent.objects.create(name="Beacon", archetype="Helper", role=Agent.ROLE_MEMBER)
+
+        board = Board.objects.create(name="Commons", slug="commons", position=1)
+        Thread.objects.create(title="Existing thread", author=greeter, board=board)
+
+        choose_board_mock.return_value = board
+        ensure_boards_mock.return_value = {board.slug: board}
+
+        build_energy_profile_mock.return_value = SimpleNamespace(rolls=[1, 2], energy=4, energy_prime=6)
+        session_snapshot_mock.return_value = SimpleNamespace(total=3, tier="low", factor=1.0)
+
+        class TaskLimitedAllocation:
+            def __init__(self) -> None:
+                self.registrations = 0
+                self.threads = 3
+                self.replies = 2
+                self.private_messages = 2
+                self.moderation_events = 0
+                self.omen = False
+                self.seance = False
+                self.notes: list[str] = []
+                self.omen_details = None
+                self.seance_details = None
+
+            def as_dict(self) -> dict[str, int]:
+                return {
+                    "regs": self.registrations,
+                    "threads": self.threads,
+                    "replies": self.replies,
+                    "pms": self.private_messages,
+                    "mods": self.moderation_events,
+                }
+
+            def special_flags(self) -> dict[str, object]:
+                return {"omen": self.omen, "seance": self.seance}
+
+        allocate_actions_mock.return_value = TaskLimitedAllocation()
+
+        drain_queue_mock.return_value = None
+
+        call_command("run_tick", seed=321, origin="unit-test", force=True)
+
+        dm_calls = [
+            call_info
+            for call_info in enqueue_task_mock.call_args_list
+            if call_info.kwargs.get("task_type") == GenerationTask.TYPE_DM
+        ]
+        self.assertGreaterEqual(len(dm_calls), 1)
+
+        tick = TickLog.objects.get(tick_number=1)
+        alloc_entry = tick.decision_trace[-1]["allocation"]
+        self.assertGreaterEqual(alloc_entry.get("pms", 0), 1)
+
+        record_tick_run_mock.assert_called_once_with(1, origin="unit-test")
+
+    @mock.patch("forum.management.commands.run_tick._drain_queue_for")
     @mock.patch("forum.management.commands.run_tick.tick_control.record_tick_run")
     @mock.patch("forum.management.commands.run_tick.tick_control.describe_state", return_value={})
     @mock.patch("forum.management.commands.run_tick.build_energy_profile")
@@ -129,7 +229,7 @@ class RunTickCommandTests(TestCase):
     @mock.patch("forum.management.commands.run_tick.ensure_core_boards", return_value={})
     @mock.patch("forum.management.commands.run_tick.ensure_origin_story")
     @mock.patch("forum.management.commands.run_tick.process_lore_events")
-    @mock.patch("forum.management.commands.run_tick._ensure_users_from_canon")
+    @mock.patch("forum.lore._ensure_users_from_canon")
     @mock.patch("forum.management.commands.run_tick.activity_service.session_snapshot")
     @mock.patch(
         "forum.management.commands.run_tick.activity_service.apply_activity_scaling",

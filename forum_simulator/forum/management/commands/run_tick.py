@@ -1106,17 +1106,22 @@ class Command(BaseCommand):
                 max_total = 4
             if max_total is None or max_total <= 0:
                 max_total = 4
-            priority = ("replies", "threads", "private_messages")
+            min_dm_quota = 1
+            requested_dm = max(int(getattr(allocation, "private_messages", 0) or 0), 0)
+            reserved_for_dm = min(requested_dm, min_dm_quota)
+            priority = ("replies", "threads")
             remaining = max_total
             for attr in priority:
                 current = getattr(allocation, attr, 0) or 0
                 current = int(current)
-                if remaining <= 0:
-                    setattr(allocation, attr, 0)
-                    continue
-                allowed = min(current, remaining)
+                if remaining <= reserved_for_dm:
+                    allowed = 0
+                else:
+                    allowed = min(current, remaining - reserved_for_dm)
                 setattr(allocation, attr, allowed)
                 remaining -= allowed
+            dm_allowed = min(requested_dm, max(remaining, 0))
+            setattr(allocation, "private_messages", dm_allowed)
             return allocation
         allocation = _limit_generation_actions(allocation, max_ai_tasks)
 
@@ -1800,8 +1805,6 @@ class Command(BaseCommand):
             if entry.get("type") == "allocation":
                 entry["private_messages"] = dm_total_planned
                 break
-
-        allocation.private_messages = 0
 
         # Drain DM generation tasks synchronously after scheduling
         _drain_queue_for(GenerationTask.TYPE_DM, max_loops=6, batch=12)

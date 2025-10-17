@@ -23,7 +23,9 @@ compatible with the original command except for the improvements noted above.
 
 from __future__ import annotations
 
+import json
 import random
+import re
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 from typing import Optional, List, Iterable, Dict, Set
@@ -450,6 +452,199 @@ class Command(BaseCommand):
             pass
         lore_events_log = process_lore_events(next_tick, boards)
 
+        board_request_queue: List[Dict[str, object]] = []
+
+        def _clean_slug(slug_hint: str | None) -> str:
+            if not slug_hint:
+                return ""
+            cleaned = "".join(ch for ch in slug_hint.lower() if ch.isalnum() or ch in "-_")
+            return cleaned.strip("-_")[:64]
+
+        def _parse_created_at(value: object) -> datetime:
+            if isinstance(value, datetime):
+                dt = value
+            elif isinstance(value, str):
+                raw = value.strip()
+                if not raw:
+                    return moment
+                if raw.endswith("Z"):
+                    raw = f"{raw[:-1]}+00:00"
+                try:
+                    dt = datetime.fromisoformat(raw)
+                except ValueError:
+                    return moment
+            elif isinstance(value, (int, float)):
+                try:
+                    dt = datetime.fromtimestamp(float(value), tz=timezone.utc)
+                except (TypeError, ValueError, OSError):
+                    return moment
+            else:
+                return moment
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+
+        def _parse_board_request_text(text: str) -> tuple[str | None, str | None, str | None, str | None]:
+            payload = (text or "").strip()
+            if not payload:
+                return None, None, None, None
+            description = payload[:300]
+            try:
+                blob = json.loads(payload)
+            except Exception:
+                blob = None
+            if isinstance(blob, dict):
+                name = str(blob.get("name") or "").strip() or None
+                slug = str(blob.get("slug") or "").strip() or None
+                desc = str(blob.get("description") or "").strip()
+                parent_slug = str(blob.get("parent") or blob.get("parent_slug") or "").strip() or None
+                return name, slug or None, (desc or description)[:300], parent_slug
+            slug_match = re.search(r"/([a-z0-9][a-z0-9_-]{1,63})", payload, re.IGNORECASE)
+            if not slug_match:
+                slug_match = re.search(r"slug\s*[:=]\s*([A-Za-z0-9_-]{2,64})", payload)
+            slug = slug_match.group(1).lower() if slug_match else None
+            parent_match = re.search(r"parent(?:\s+board)?\s*[:=]\s*([A-Za-z0-9_-]{2,64})", payload, re.IGNORECASE)
+            parent_slug = parent_match.group(1).lower() if parent_match else None
+            name_match = re.search(r"name\s*[:=]\s*(.+)", payload, re.IGNORECASE)
+            name = None
+            if name_match:
+                name = name_match.group(1).strip().splitlines()[0]
+            if not name:
+                lines = [line.strip() for line in payload.splitlines() if line.strip()]
+                if lines:
+                    first_line = lines[0]
+                    if "request" in first_line.lower() and ":" in first_line:
+                        first_line = first_line.split(":", 1)[1].strip()
+                    name = first_line or None
+            return name, slug, description, parent_slug
+
+        def _requests_from_news_meta(limit: int = 12) -> List[Dict[str, object]]:
+            deck = boards.get("news-meta") or Board.objects.filter(slug__iexact="news-meta").first()
+            if not deck:
+                return []
+            lookback = moment - timedelta(days=7)
+            topic_filter = (
+                models.Q(topics__contains=["request"])
+                | models.Q(topics__contains=["requests"])
+                | models.Q(topics__contains=["board-request"])
+            )
+            threads = (
+                Thread.objects.filter(board=deck)
+                .filter(topic_filter)
+                .filter(created_at__gte=lookback)
+                .order_by("created_at")
+            )[:limit]
+            suggestions: List[Dict[str, object]] = []
+            for thread in threads:
+                first_post = thread.posts.order_by("created_at", "id").first()
+                if not first_post:
+                    continue
+                name, slug, description, parent_slug = _parse_board_request_text(first_post.content or "")
+                if not name:
+                    title = (thread.title or "").strip()
+                    if title:
+                        if "board request" in title.lower() and ":" in title:
+                            name = title.split(":", 1)[1].strip() or None
+                        else:
+                            name = title
+                suggestions.append(
+                    {
+                        "name": name,
+                        "slug": slug,
+                        "description": description or "",
+                        "parent_slug": parent_slug,
+                        "requester": first_post.author,
+                        "post_id": first_post.id,
+                        "thread_id": thread.id,
+                        "source": "news_meta_post",
+                        "created_at": first_post.created_at,
+                    }
+                )
+            return suggestions
+
+        def _requests_from_signal() -> List[Dict[str, object]]:
+            suggestions: List[Dict[str, object]] = []
+            candidate_keys = ("board_request_signal", "board_request_queue", "board_requests")
+            for key in candidate_keys:
+                raw = config_service.get_value(key)
+                if not raw:
+                    continue
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    continue
+                if isinstance(data, dict) and isinstance(data.get("requests"), list):
+                    entries = data.get("requests", [])
+                elif isinstance(data, list):
+                    entries = data
+                else:
+                    entries = [data]
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    requester_ref = entry.get("requester") or entry.get("author")
+                    requester = None
+                    if isinstance(requester_ref, int):
+                        requester = Agent.objects.filter(id=requester_ref).first()
+                    elif isinstance(requester_ref, str):
+                        requester = Agent.objects.filter(name__iexact=requester_ref.strip()).first()
+                    suggestions.append(
+                        {
+                            "name": (entry.get("name") or entry.get("title") or "").strip() or None,
+                            "slug": (entry.get("slug") or entry.get("slug_hint") or "").strip() or None,
+                            "description": (entry.get("description") or entry.get("reason") or "").strip(),
+                            "parent_slug": (entry.get("parent") or entry.get("parent_slug") or "").strip() or None,
+                            "requester": requester,
+                            "source": entry.get("source") or key,
+                            "created_at": _parse_created_at(entry.get("created_at")),
+                        }
+                    )
+            return suggestions
+
+        def _refresh_board_request_queue(limit: int = 8) -> None:
+            suggestions = _requests_from_news_meta() + _requests_from_signal()
+            if not suggestions:
+                board_request_queue.clear()
+                return
+            existing_slugs = {slug.lower() for slug in Board.objects.values_list("slug", flat=True)}
+            existing_names = {name.lower() for name in Board.objects.values_list("name", flat=True)}
+            filtered: List[Dict[str, object]] = []
+            seen_slugs: Set[str] = set()
+            seen_names: Set[str] = set()
+            suggestions.sort(key=lambda item: item.get("created_at") or moment)
+            for entry in suggestions:
+                name = (entry.get("name") or "").strip()
+                slug_hint = entry.get("slug")
+                cleaned_slug = _clean_slug(slug_hint)
+                if not cleaned_slug and name:
+                    cleaned_slug = _clean_slug(slugify(name))
+                if not name and cleaned_slug:
+                    name = cleaned_slug.replace("-", " ").replace("_", " ").title()
+                if not name:
+                    continue
+                key_slug = cleaned_slug.lower() if cleaned_slug else ""
+                if key_slug and key_slug in existing_slugs:
+                    continue
+                if key_slug and key_slug in seen_slugs:
+                    continue
+                lower_name = name.lower()
+                if lower_name in existing_names or lower_name in seen_names:
+                    continue
+                entry["name"] = name
+                entry["slug"] = cleaned_slug or None
+                entry["created_at"] = entry.get("created_at") or moment
+                entry["description"] = (entry.get("description") or "").strip()
+                entry["parent_slug"] = _clean_slug(entry.get("parent_slug")) or None
+                filtered.append(entry)
+                if key_slug:
+                    seen_slugs.add(key_slug)
+                seen_names.add(lower_name)
+                if len(filtered) >= limit:
+                    break
+            board_request_queue[:] = filtered
+
+        _refresh_board_request_queue()
+
         # Additional helper inside handle for unique slug
         def _unique_board_slug(name: str, prefix: str | None = None) -> str:
             base = slugify(name) or f"deck-{rng.randint(100, 999)}"
@@ -518,14 +713,68 @@ class Command(BaseCommand):
                 return board
             return board
 
-        # t.admin board actions unchanged from original
         def _tadmin_board_actions(admin_agent: Agent, known_boards: List[Board]) -> List[Dict[str, object]]:
             emitted: List[Dict[str, object]] = []
             existing_names = set(
                 Board.objects.values_list("name", flat=True)
             )
             total_boards = Board.objects.count()
-            can_create = total_boards < 60 and rng.random() < 0.6
+            created_from_request = False
+            if total_boards < 60:
+                while board_request_queue:
+                    candidate = board_request_queue.pop(0)
+                    name = (candidate.get("name") or "").strip()
+                    if not name:
+                        continue
+                    slug_hint = candidate.get("slug")
+                    cleaned_slug = _clean_slug(slug_hint)
+                    if not cleaned_slug:
+                        cleaned_slug = _clean_slug(slugify(name))
+                    parent: Board | None = None
+                    parent_slug = candidate.get("parent_slug")
+                    if parent_slug:
+                        parent = Board.objects.filter(slug__iexact=parent_slug).first()
+                        if not parent:
+                            parent_name = parent_slug.replace("-", " ").replace("_", " ")
+                            parent = Board.objects.filter(name__iexact=parent_name).first()
+                    if cleaned_slug and Board.objects.filter(slug__iexact=cleaned_slug).exists():
+                        continue
+                    if name.lower() in existing_names:
+                        continue
+                    requester = candidate.get("requester") or admin_agent
+                    description = candidate.get("description") or f"Opened on request by {requester.name}."
+                    target_slug = cleaned_slug or slugify(name)
+                    target_slug = _clean_slug(target_slug) or slugify(name) or None
+                    if target_slug and Board.objects.filter(slug__iexact=target_slug).exists():
+                        target_slug = None
+                    if not target_slug:
+                        target_slug = _unique_board_slug(name, parent.slug if parent else None)
+                    board = spawn_board_on_request(
+                        requester,
+                        name=name,
+                        slug=target_slug,
+                        description=description,
+                        parent=parent,
+                    )
+                    known_boards.append(board)
+                    existing_names.add(board.name)
+                    total_boards += 1
+                    emitted.append(
+                        {
+                            "type": "board_create",
+                            "board": board.name,
+                            "slug": board.slug,
+                            "parent": board.parent.slug if board.parent else None,
+                            "requested_by": getattr(requester, "name", None),
+                            "source": candidate.get("source"),
+                            "origin_post": candidate.get("post_id"),
+                            "origin_thread": candidate.get("thread_id"),
+                        }
+                    )
+                    created_from_request = True
+                    break
+
+            can_create = (not created_from_request) and total_boards < 60 and rng.random() < 0.6
             if can_create:
                 parent: Board | None = None
                 narrowed = [b for b in known_boards if isinstance(b, Board)]

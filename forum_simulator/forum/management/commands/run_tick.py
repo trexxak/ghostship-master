@@ -1645,6 +1645,10 @@ class Command(BaseCommand):
 
         planned_replies_total = max(int(allocation.replies or 0), 0)
         dm_budget = max(0, int(allocation.private_messages or 0))
+        organism_agent = (
+            Agent.objects.filter(role=Agent.ROLE_ORGANIC).order_by("id").first()
+        )
+        organic_reserve = 1 if organism_agent and dm_budget > 0 else 0
 
         welcome_targets: list[Agent] = []
         if lore_events_log:
@@ -1696,7 +1700,7 @@ class Command(BaseCommand):
 
         pending_peer_replies = pending_peer_dm_replies(dm_budget, admin_id=admin_id)
         for responder, partner, last_message in pending_peer_replies:
-            if dm_budget <= 0:
+            if dm_budget - organic_reserve <= 0:
                 break
             if responder.role == Agent.ROLE_BANNED:
                 continue
@@ -1734,10 +1738,10 @@ class Command(BaseCommand):
 
         agents_pool = list(allowed_agents)
 
-        if dm_budget and welcome_targets:
+        if (dm_budget - organic_reserve) > 0 and welcome_targets:
             rng.shuffle(welcome_targets)
             for newcomer in welcome_targets:
-                if dm_budget <= 0:
+                if dm_budget - organic_reserve <= 0:
                     break
                 greeter_options = [ghost for ghost in agents_pool if ghost.id != newcomer.id]
                 if not greeter_options:
@@ -1773,7 +1777,7 @@ class Command(BaseCommand):
                 dm_budget -= 1
                 dm_slot += 1
 
-                if dm_budget <= 0:
+                if dm_budget - organic_reserve <= 0:
                     break
                 if rng.random() < 0.5:
                     partner_pool = [
@@ -1813,13 +1817,13 @@ class Command(BaseCommand):
                         dm_budget -= 1
                         dm_slot += 1
 
-        if dm_budget and admin_actor:
+        if (dm_budget - organic_reserve) > 0 and admin_actor:
             pending_replies = []
             for partner, last_message in _latest_admin_threads(admin_actor, limit=max(dm_budget, 4)):
                 if last_message and last_message.sender_id != admin_actor.id:
                     pending_replies.append((partner, last_message))
             for partner, last_message in pending_replies:
-                if dm_budget <= 0:
+                if dm_budget - organic_reserve <= 0:
                     break
                 excerpt = (last_message.content or "")[:220] if last_message else ""
                 payload = {
@@ -1853,12 +1857,12 @@ class Command(BaseCommand):
                 dm_budget -= 1
                 dm_slot += 1
 
-        if dm_budget and admin_actor:
+        if (dm_budget - organic_reserve) > 0 and admin_actor:
             annoyers = [ghost for ghost in agents_pool if ghost.id != admin_actor.id]
             rng.shuffle(annoyers)
             annoy_count = min(dm_budget, max(1, rng.randint(1, 3)))
             for _ in range(annoy_count):
-                if dm_budget <= 0 or not annoyers:
+                if dm_budget - organic_reserve <= 0 or not annoyers:
                     break
                 sender = annoyers.pop(0)
                 instruction = "Send t.admin a poke that demands attention and wastes his time."
@@ -1888,7 +1892,6 @@ class Command(BaseCommand):
                 dm_budget -= 1
                 dm_slot += 1
 
-        organism_agent = Agent.objects.filter(role=Agent.ROLE_ORGANIC).order_by("id").first()
         if dm_budget and organism_agent:
             testers = [ghost for ghost in agents_pool if ghost.id != organism_agent.id]
             rng.shuffle(testers)
@@ -1922,6 +1925,10 @@ class Command(BaseCommand):
                 )
                 dm_budget -= 1
                 dm_slot += 1
+                if organic_reserve:
+                    organic_reserve = max(organic_reserve - 1, 0)
+
+        organic_reserve = 0
 
         peer_pool = [ghost for ghost in agents_pool if not admin_actor or ghost.id != admin_actor.id]
         if len(peer_pool) < 2:

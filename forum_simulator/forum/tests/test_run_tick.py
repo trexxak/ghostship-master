@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest import mock
 
 from django.core.management import call_command
 from django.test import TestCase
 
-from forum.models import Agent, Board, GenerationTask, OracleDraw, PrivateMessage, Thread, TickLog
+from forum.lore import spawn_board_on_request as real_spawn_board_on_request
+from forum.models import Agent, Board, GenerationTask, OracleDraw, Post, PrivateMessage, Thread, TickLog
 
 
 class RunTickCommandTests(TestCase):
     @mock.patch("forum.management.commands.run_tick._drain_queue_for")
+    @mock.patch("forum.management.commands.run_tick.generate_completion", return_value={"success": True, "text": "{\"threads\": []}"})
     @mock.patch("forum.management.commands.run_tick.enqueue_generation_task", return_value=SimpleNamespace(id=1))
     @mock.patch("forum.management.commands.run_tick.choose_board_for_thread")
     @mock.patch("forum.management.commands.run_tick.tick_control.record_tick_run")
@@ -21,7 +24,6 @@ class RunTickCommandTests(TestCase):
     @mock.patch("forum.management.commands.run_tick.ensure_core_boards", return_value={})
     @mock.patch("forum.management.commands.run_tick.ensure_origin_story")
     @mock.patch("forum.management.commands.run_tick.process_lore_events", return_value=[])
-    @mock.patch("forum.management.commands.run_tick._ensure_users_from_canon")
     @mock.patch("forum.management.commands.run_tick.activity_service.session_snapshot", return_value={})
     @mock.patch(
         "forum.management.commands.run_tick.activity_service.apply_activity_scaling",
@@ -33,7 +35,6 @@ class RunTickCommandTests(TestCase):
         get_int_mock,
         apply_scaling_mock,
         session_snapshot_mock,
-        ensure_users_mock,
         process_lore_mock,
         ensure_origin_mock,
         ensure_boards_mock,
@@ -44,6 +45,7 @@ class RunTickCommandTests(TestCase):
         record_tick_run_mock,
         choose_board_mock,
         enqueue_task_mock,
+        generate_completion_mock,
         drain_queue_mock,
     ) -> None:
         Agent.objects.create(
@@ -121,6 +123,166 @@ class RunTickCommandTests(TestCase):
         drain_queue_mock.assert_called()
 
     @mock.patch("forum.management.commands.run_tick._drain_queue_for")
+    @mock.patch("forum.management.commands.run_tick.spawn_board_on_request")
+    @mock.patch("forum.management.commands.run_tick.generate_completion")
+    @mock.patch("forum.management.commands.run_tick.enqueue_generation_task")
+    @mock.patch("forum.management.commands.run_tick.choose_board_for_thread")
+    @mock.patch("forum.management.commands.run_tick.tick_control.record_tick_run")
+    @mock.patch("forum.management.commands.run_tick.tick_control.describe_state", return_value={})
+    @mock.patch("forum.management.commands.run_tick.build_energy_profile")
+    @mock.patch("forum.management.commands.run_tick.allocate_actions")
+    @mock.patch("forum.management.commands.run_tick.agent_state.progress_agents", return_value=[{"agent": "Aurora"}])
+    @mock.patch("forum.management.commands.run_tick.ensure_core_boards", return_value={})
+    @mock.patch("forum.management.commands.run_tick.ensure_origin_story")
+    @mock.patch("forum.management.commands.run_tick.process_lore_events", return_value=[])
+    @mock.patch("forum.management.commands.run_tick.activity_service.session_snapshot", return_value={})
+    @mock.patch(
+        "forum.management.commands.run_tick.activity_service.apply_activity_scaling",
+        side_effect=lambda allocation, snapshot: allocation,
+    )
+    @mock.patch("forum.management.commands.run_tick.config_service.get_int", return_value=0)
+    def test_thread_briefs_and_board_markers(
+        self,
+        get_int_mock,
+        apply_scaling_mock,
+        session_snapshot_mock,
+        process_lore_mock,
+        ensure_origin_mock,
+        ensure_boards_mock,
+        progress_agents_mock,
+        allocate_actions_mock,
+        build_energy_profile_mock,
+        describe_state_mock,
+        record_tick_run_mock,
+        choose_board_mock,
+        enqueue_task_mock,
+        generate_completion_mock,
+        spawn_board_mock,
+        drain_queue_mock,
+    ) -> None:
+        Agent.objects.create(
+            name="Aurora",
+            archetype="Scout",
+            traits={},
+            needs={},
+            cooldowns={},
+        )
+        Agent.objects.create(
+            name="Beacon",
+            archetype="Helper",
+            traits={},
+            needs={},
+            cooldowns={},
+        )
+
+        base_board = Board.objects.create(name="Commons", slug="commons", position=1)
+        ensure_boards_mock.return_value = {base_board.slug: base_board}
+        choose_board_mock.return_value = base_board
+
+        build_energy_profile_mock.return_value = SimpleNamespace(rolls=[3, 5], energy=6, energy_prime=8)
+
+        class ThreadAllocation:
+            def __init__(self) -> None:
+                self.registrations = 0
+                self.threads = 2
+                self.replies = 0
+                self.private_messages = 0
+                self.moderation_events = 0
+                self.omen = False
+                self.seance = False
+                self.notes: list[str] = ["signal spike"]
+                self.omen_details: dict[str, object] = {}
+                self.seance_details: dict[str, object] = {}
+
+            def as_dict(self) -> dict[str, int]:
+                return {
+                    "regs": self.registrations,
+                    "threads": self.threads,
+                    "replies": self.replies,
+                    "pms": self.private_messages,
+                    "mods": self.moderation_events,
+                }
+
+            def special_flags(self) -> dict[str, object]:
+                return {"omen": self.omen, "seance": self.seance}
+
+        allocate_actions_mock.return_value = ThreadAllocation()
+
+        thread_plan = {
+            "threads": [
+                {
+                    "title": "Anomaly Watch // shard drift",
+                    "hook": "Shard telemetry is slipping again; cross-check last night's logs.",
+                    "topics": ["signal", "analysis"],
+                    "subject": "shard drift alert",
+                },
+                {
+                    "title": "Commons maintenance log",
+                    "hook": "Document the fixes everyone promised to ship by dawn.",
+                    "topics": ["meta", "ship-log"],
+                    "subject": "maintenance backlog",
+                },
+            ]
+        }
+        generate_completion_mock.return_value = {"success": True, "text": json.dumps(thread_plan)}
+
+        def enqueue_stub(*args, **kwargs):
+            return SimpleNamespace(id=len(GenerationTask.objects.all()) + 1)
+
+        enqueue_task_mock.side_effect = enqueue_stub
+
+        thread_task_calls = {"count": 0}
+
+        def drain_stub(kind, *, thread=None, max_loops=6, batch=8):
+            if kind != GenerationTask.TYPE_THREAD_START or thread is None:
+                return None
+            thread_task_calls["count"] += 1
+            if thread_task_calls["count"] == 1:
+                Post.objects.create(
+                    thread=thread,
+                    author=thread.author,
+                    content="BOARD-NEW: anomalies | Anomaly Tracking\nfirst post",
+                )
+            else:
+                Post.objects.create(
+                    thread=thread,
+                    author=thread.author,
+                    content="BOARD: commons\nsecond post",
+                )
+            return None
+
+        drain_queue_mock.side_effect = drain_stub
+        spawn_board_mock.side_effect = real_spawn_board_on_request
+
+        call_command("run_tick", seed=55, origin="unit-test", force=True)
+
+        self.assertGreaterEqual(Thread.objects.count(), 2)
+        first_thread = Thread.objects.get(title="Anomaly Watch // shard drift")
+        second_thread = Thread.objects.get(title="Commons maintenance log")
+
+        self.assertEqual(first_thread.topics, ["signal", "analysis"])
+        opener = first_thread.posts.order_by("created_at", "id").first()
+        self.assertIsNotNone(opener)
+        self.assertTrue((opener.content or "").startswith("BOARD-NEW:"))
+
+        self.assertTrue(Board.objects.filter(slug="anomalies").exists())
+        board_map = dict(Thread.objects.values_list("title", "board__slug"))
+        self.assertEqual(first_thread.board.slug, "anomalies", msg=board_map)
+
+        tick = TickLog.objects.get(tick_number=1)
+        relocations = [event for event in tick.events if event.get("type") == "thread_relocate"]
+        self.assertTrue(
+            any(event.get("thread") == first_thread.title and event.get("to") == "anomalies" for event in relocations),
+            msg=f"Relocations: {relocations}",
+        )
+
+        self.assertEqual(second_thread.topics, ["meta", "ship-log"])
+        self.assertEqual(second_thread.board.slug, "commons")
+
+        generate_completion_mock.assert_called_once()
+        self.assertGreaterEqual(thread_task_calls["count"], 2)
+
+    @mock.patch("forum.management.commands.run_tick._drain_queue_for")
     @mock.patch("forum.management.commands.run_tick.tick_control.record_tick_run")
     @mock.patch("forum.management.commands.run_tick.tick_control.describe_state", return_value={})
     @mock.patch("forum.management.commands.run_tick.build_energy_profile")
@@ -129,7 +291,6 @@ class RunTickCommandTests(TestCase):
     @mock.patch("forum.management.commands.run_tick.ensure_core_boards", return_value={})
     @mock.patch("forum.management.commands.run_tick.ensure_origin_story")
     @mock.patch("forum.management.commands.run_tick.process_lore_events")
-    @mock.patch("forum.management.commands.run_tick._ensure_users_from_canon")
     @mock.patch("forum.management.commands.run_tick.activity_service.session_snapshot")
     @mock.patch(
         "forum.management.commands.run_tick.activity_service.apply_activity_scaling",
@@ -141,7 +302,6 @@ class RunTickCommandTests(TestCase):
         get_int_mock,
         apply_scaling_mock,
         session_snapshot_mock,
-        ensure_users_mock,
         process_lore_mock,
         ensure_origin_mock,
         ensure_boards_mock,

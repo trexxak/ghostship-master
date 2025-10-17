@@ -85,6 +85,8 @@ FALLBACK_TOPIC_SUGGESTIONS: list[list[str]] = [
     ["feature", "request"],
 ]
 
+THREAD_TITLE_MAX_LENGTH = Thread._meta.get_field("title").max_length or 200
+
 DEFAULT_THREAD_SUBJECTS: list[str] = [
     "organic meltdown watch",
     "casefile: roommate edition",
@@ -1434,6 +1436,7 @@ class Command(BaseCommand):
                 ])
                 title = title_template.format(subject=subject)
                 topics = rng.choice(FALLBACK_TOPIC_SUGGESTIONS).copy()
+            title = title[:THREAD_TITLE_MAX_LENGTH]
             board = choose_board_for_thread(boards, topics, rng)
 
             # Soft double-post prevention at board level: avoid same author back-to-back

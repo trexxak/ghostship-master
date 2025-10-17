@@ -283,6 +283,119 @@ class RunTickCommandTests(TestCase):
         self.assertGreaterEqual(thread_task_calls["count"], 2)
 
     @mock.patch("forum.management.commands.run_tick._drain_queue_for")
+    @mock.patch("forum.management.commands.run_tick.spawn_board_on_request")
+    @mock.patch("forum.management.commands.run_tick.generate_completion")
+    @mock.patch("forum.management.commands.run_tick.enqueue_generation_task")
+    @mock.patch("forum.management.commands.run_tick.choose_board_for_thread")
+    @mock.patch("forum.management.commands.run_tick.tick_control.record_tick_run")
+    @mock.patch("forum.management.commands.run_tick.tick_control.describe_state", return_value={})
+    @mock.patch("forum.management.commands.run_tick.build_energy_profile")
+    @mock.patch("forum.management.commands.run_tick.allocate_actions")
+    @mock.patch("forum.management.commands.run_tick.agent_state.progress_agents", return_value=[{"agent": "Aurora"}])
+    @mock.patch("forum.management.commands.run_tick.ensure_core_boards", return_value={})
+    @mock.patch("forum.management.commands.run_tick.ensure_origin_story")
+    @mock.patch("forum.management.commands.run_tick.process_lore_events", return_value=[])
+    @mock.patch("forum.management.commands.run_tick.activity_service.session_snapshot", return_value={})
+    @mock.patch(
+        "forum.management.commands.run_tick.activity_service.apply_activity_scaling",
+        side_effect=lambda allocation, snapshot: allocation,
+    )
+    @mock.patch("forum.management.commands.run_tick.config_service.get_int", return_value=0)
+    def test_generated_thread_title_is_clamped(
+        self,
+        get_int_mock,
+        apply_scaling_mock,
+        session_snapshot_mock,
+        process_lore_mock,
+        ensure_origin_mock,
+        ensure_boards_mock,
+        progress_agents_mock,
+        allocate_actions_mock,
+        build_energy_profile_mock,
+        describe_state_mock,
+        record_tick_run_mock,
+        choose_board_mock,
+        enqueue_task_mock,
+        generate_completion_mock,
+        spawn_board_mock,
+        drain_queue_mock,
+    ) -> None:
+        Agent.objects.create(
+            name="Aurora",
+            archetype="Scout",
+            traits={},
+            needs={},
+            cooldowns={},
+        )
+        Agent.objects.create(
+            name="Beacon",
+            archetype="Helper",
+            traits={},
+            needs={},
+            cooldowns={},
+        )
+
+        base_board = Board.objects.create(name="Commons", slug="commons", position=1)
+        ensure_boards_mock.return_value = {base_board.slug: base_board}
+        choose_board_mock.return_value = base_board
+
+        build_energy_profile_mock.return_value = SimpleNamespace(rolls=[2, 6], energy=4, energy_prime=9)
+
+        class SingleThreadAllocation:
+            def __init__(self) -> None:
+                self.registrations = 0
+                self.threads = 1
+                self.replies = 0
+                self.private_messages = 0
+                self.moderation_events = 0
+                self.omen = False
+                self.seance = False
+                self.notes: list[str] = []
+                self.omen_details: dict[str, object] = {}
+                self.seance_details: dict[str, object] = {}
+
+            def as_dict(self) -> dict[str, int]:
+                return {
+                    "regs": self.registrations,
+                    "threads": self.threads,
+                    "replies": self.replies,
+                    "pms": self.private_messages,
+                    "mods": self.moderation_events,
+                }
+
+            def special_flags(self) -> dict[str, object]:
+                return {"omen": self.omen, "seance": self.seance}
+
+        allocate_actions_mock.return_value = SingleThreadAllocation()
+
+        max_length = Thread._meta.get_field("title").max_length
+        long_title = "LLM horizon report // " + ("x" * (max_length + 25))
+
+        thread_plan = {
+            "threads": [
+                {
+                    "title": long_title,
+                    "hook": "",
+                    "topics": ["signal", "analysis"],
+                    "subject": "sensor horizon",
+                }
+            ]
+        }
+        generate_completion_mock.return_value = {"success": True, "text": json.dumps(thread_plan)}
+
+        enqueue_task_mock.side_effect = lambda *args, **kwargs: SimpleNamespace(id=1)
+        drain_queue_mock.return_value = None
+        spawn_board_mock.return_value = None
+
+        call_command("run_tick", seed=77, origin="unit-test", force=True)
+
+        expected_title = long_title[:max_length]
+        created_thread = Thread.objects.get(title=expected_title)
+
+        self.assertEqual(created_thread.title, expected_title)
+        self.assertLessEqual(len(created_thread.title), max_length)
+
+    @mock.patch("forum.management.commands.run_tick._drain_queue_for")
     @mock.patch("forum.management.commands.run_tick.tick_control.record_tick_run")
     @mock.patch("forum.management.commands.run_tick.tick_control.describe_state", return_value={})
     @mock.patch("forum.management.commands.run_tick.build_energy_profile")

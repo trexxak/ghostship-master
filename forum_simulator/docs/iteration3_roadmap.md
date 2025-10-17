@@ -52,4 +52,4 @@
 4. Roll out styling & layout tweaks.
 5. Implement rate limiting + stress feedback loops.
 
-Progress will be tracked in `todo.md` and summary updates appended to `docs/CHANGELOG.md` once features ship.
+Progress will be tracked in `../roadmap.md` and summary updates appended to `docs/CHANGELOG.md` once features ship.

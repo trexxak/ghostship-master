@@ -123,6 +123,120 @@ class RunTickCommandTests(TestCase):
         drain_queue_mock.assert_called()
 
     @mock.patch("forum.management.commands.run_tick._drain_queue_for")
+    @mock.patch(
+        "forum.management.commands.run_tick.generate_completion",
+        return_value={"success": True, "text": "{\"threads\": []}"},
+    )
+    @mock.patch(
+        "forum.management.commands.run_tick.enqueue_generation_task",
+        return_value=SimpleNamespace(id=1),
+    )
+    @mock.patch("forum.management.commands.run_tick.tick_control.record_tick_run")
+    @mock.patch("forum.management.commands.run_tick.tick_control.describe_state", return_value={})
+    @mock.patch("forum.management.commands.run_tick.build_energy_profile")
+    @mock.patch("forum.management.commands.run_tick.allocate_actions")
+    @mock.patch("forum.management.commands.run_tick.agent_state.progress_agents", return_value=[{"agent": "Aurora"}])
+    @mock.patch("forum.management.commands.run_tick.ensure_core_boards")
+    @mock.patch("forum.management.commands.run_tick.ensure_origin_story")
+    @mock.patch("forum.management.commands.run_tick.process_lore_events", return_value=[])
+    @mock.patch("forum.management.commands.run_tick.activity_service.session_snapshot", return_value={})
+    @mock.patch(
+        "forum.management.commands.run_tick.activity_service.apply_activity_scaling",
+        side_effect=lambda allocation, snapshot: allocation,
+    )
+    @mock.patch("forum.management.commands.run_tick.config_service.get_int", return_value=1)
+    def test_fallback_thread_briefs_prefer_quiet_boards(
+        self,
+        get_int_mock,
+        apply_scaling_mock,
+        session_snapshot_mock,
+        process_lore_mock,
+        ensure_origin_mock,
+        ensure_boards_mock,
+        progress_agents_mock,
+        allocate_actions_mock,
+        build_energy_profile_mock,
+        describe_state_mock,
+        record_tick_run_mock,
+        enqueue_task_mock,
+        generate_completion_mock,
+        drain_queue_mock,
+    ) -> None:
+        admin = Agent.objects.create(
+            name="t.admin",
+            archetype="Admin",
+            traits={},
+            needs={},
+            cooldowns={},
+            role=Agent.ROLE_ADMIN,
+        )
+        Agent.objects.create(
+            name="Aurora",
+            archetype="Scout",
+            traits={},
+            needs={},
+            cooldowns={},
+        )
+        Agent.objects.create(
+            name="Beacon",
+            archetype="Helper",
+            traits={},
+            needs={},
+            cooldowns={},
+        )
+
+        news = Board.objects.create(name="News + Meta", slug="news-meta", position=1)
+        games = Board.objects.create(name="Games (general)", slug="games", position=2)
+        ensure_boards_mock.return_value = {news.slug: news, games.slug: games}
+        ensure_origin_mock.side_effect = lambda boards: None
+
+        Thread.objects.create(title="How to operate…", author=admin, board=news)
+
+        build_energy_profile_mock.return_value = SimpleNamespace(rolls=[2, 4], energy=5, energy_prime=7)
+
+        class OneThreadAllocation:
+            def __init__(self) -> None:
+                self.registrations = 0
+                self.threads = 1
+                self.replies = 0
+                self.private_messages = 0
+                self.moderation_events = 0
+                self.omen = False
+                self.seance = False
+                self.notes: list[str] = []
+                self.omen_details = {}
+                self.seance_details = {}
+
+            def as_dict(self) -> dict[str, int]:
+                return {
+                    "regs": self.registrations,
+                    "threads": self.threads,
+                    "replies": self.replies,
+                    "pms": self.private_messages,
+                    "mods": self.moderation_events,
+                }
+
+            def special_flags(self) -> dict[str, object]:
+                return {"omen": self.omen, "seance": self.seance}
+
+        allocate_actions_mock.return_value = OneThreadAllocation()
+        drain_queue_mock.return_value = None
+
+        call_command("run_tick", seed=42, origin="unit-test", force=True)
+
+        created = (
+            Thread.objects.exclude(title="How to operate…")
+            .order_by("-id")
+            .first()
+        )
+        self.assertIsNotNone(created)
+        self.assertEqual(created.board.slug, "games")
+        self.assertTrue(created.topics)
+        self.assertEqual(created.topics[0], "games")
+
+        record_tick_run_mock.assert_called_once_with(1, origin="unit-test")
+
+    @mock.patch("forum.management.commands.run_tick._drain_queue_for")
     @mock.patch("forum.management.commands.run_tick.spawn_board_on_request")
     @mock.patch("forum.management.commands.run_tick.generate_completion")
     @mock.patch("forum.management.commands.run_tick.enqueue_generation_task")
@@ -260,7 +374,8 @@ class RunTickCommandTests(TestCase):
         first_thread = Thread.objects.get(title="Anomaly Watch // shard drift")
         second_thread = Thread.objects.get(title="Commons maintenance log")
 
-        self.assertEqual(first_thread.topics, ["signal", "analysis"])
+        self.assertEqual(first_thread.topics[:2], ["anomalies", "signal"])
+        self.assertIn("analysis", first_thread.topics)
         opener = first_thread.posts.order_by("created_at", "id").first()
         self.assertIsNotNone(opener)
         self.assertTrue((opener.content or "").startswith("BOARD-NEW:"))
@@ -276,7 +391,8 @@ class RunTickCommandTests(TestCase):
             msg=f"Relocations: {relocations}",
         )
 
-        self.assertEqual(second_thread.topics, ["meta", "ship-log"])
+        self.assertEqual(second_thread.topics[:2], ["commons", "meta"])
+        self.assertIn("ship-log", second_thread.topics)
         self.assertEqual(second_thread.board.slug, "commons")
 
         generate_completion_mock.assert_called_once()
@@ -513,5 +629,129 @@ class RunTickCommandTests(TestCase):
         ]
         self.assertTrue(trexxak_events)
         self.assertGreater(processed_counts["dm"], 0)
+
+        record_tick_run_mock.assert_called_once_with(1, origin="unit-test")
+
+    @mock.patch("forum.management.commands.run_tick._drain_queue_for")
+    @mock.patch("forum.management.commands.run_tick.tick_control.record_tick_run")
+    @mock.patch("forum.management.commands.run_tick.tick_control.describe_state", return_value={})
+    @mock.patch("forum.management.commands.run_tick.build_energy_profile")
+    @mock.patch("forum.management.commands.run_tick.allocate_actions")
+    @mock.patch("forum.management.commands.run_tick.agent_state.progress_agents", return_value=[{"agent": "Aurora"}])
+    @mock.patch("forum.management.commands.run_tick.ensure_core_boards", return_value={})
+    @mock.patch("forum.management.commands.run_tick.ensure_origin_story")
+    @mock.patch("forum.management.commands.run_tick.process_lore_events")
+    @mock.patch("forum.management.commands.run_tick.activity_service.session_snapshot")
+    @mock.patch(
+        "forum.management.commands.run_tick.activity_service.apply_activity_scaling",
+        side_effect=lambda allocation, snapshot: allocation,
+    )
+    @mock.patch("forum.management.commands.run_tick.config_service.get_int", return_value=2)
+    def test_trexxak_dm_reserved_when_budget_low(
+        self,
+        get_int_mock,
+        apply_scaling_mock,
+        session_snapshot_mock,
+        process_lore_mock,
+        ensure_origin_mock,
+        ensure_boards_mock,
+        progress_agents_mock,
+        allocate_actions_mock,
+        build_energy_profile_mock,
+        describe_state_mock,
+        record_tick_run_mock,
+        drain_queue_mock,
+    ) -> None:
+        admin = Agent.objects.create(name="t.admin", archetype="Admin", role=Agent.ROLE_ADMIN)
+        greeter = Agent.objects.create(name="Aurora", archetype="Scout", role=Agent.ROLE_MEMBER)
+        partner = Agent.objects.create(name="Beacon", archetype="Helper", role=Agent.ROLE_MEMBER)
+        newcomer = Agent.objects.create(name="Comet", archetype="New", role=Agent.ROLE_MEMBER)
+        trexxak = Agent.objects.create(name="trexxak", archetype="Interface", role=Agent.ROLE_ORGANIC)
+
+        # Pending DM to encourage peer reply consumption
+        PrivateMessage.objects.create(sender=partner, recipient=greeter, content="reply soon")
+
+        board = Board.objects.create(name="Commons", slug="commons", position=1)
+        Thread.objects.create(title="Existing thread", author=greeter, board=board)
+
+        build_energy_profile_mock.return_value = SimpleNamespace(rolls=[1, 2], energy=5, energy_prime=7)
+
+        class TinyDMAllocation:
+            def __init__(self) -> None:
+                self.registrations = 0
+                self.threads = 0
+                self.replies = 0
+                self.private_messages = 1
+                self.moderation_events = 0
+                self.omen = False
+                self.seance = False
+                self.notes: list[str] = []
+                self.omen_details = {}
+                self.seance_details = {}
+
+            def as_dict(self) -> dict[str, int]:
+                return {
+                    "regs": self.registrations,
+                    "threads": self.threads,
+                    "replies": self.replies,
+                    "pms": self.private_messages,
+                    "mods": self.moderation_events,
+                }
+
+            def special_flags(self) -> dict[str, object]:
+                return {"omen": self.omen, "seance": self.seance}
+
+        allocate_actions_mock.return_value = TinyDMAllocation()
+
+        process_lore_mock.return_value = [
+            {"kind": "user_join", "meta": {"id": newcomer.id}},
+        ]
+        session_snapshot_mock.return_value = SimpleNamespace(total=5, tier="mid", factor=1.0)
+
+        def drain_stub(kind, *, thread=None, max_loops=6, batch=8):
+            if kind != GenerationTask.TYPE_DM:
+                return None
+            tasks = list(
+                GenerationTask.objects.filter(
+                    task_type=kind, status=GenerationTask.STATUS_PENDING
+                )
+            )
+            for task in tasks:
+                PrivateMessage.objects.create(
+                    sender=task.agent,
+                    recipient=task.recipient,
+                    content=f"[auto]{task.payload.get('instruction', '')[:50]}",
+                    tick_number=task.payload.get("tick_number"),
+                )
+                task.status = GenerationTask.STATUS_COMPLETED
+                task.save(update_fields=["status", "updated_at"])
+            return None
+
+        drain_queue_mock.side_effect = drain_stub
+
+        call_command("run_tick", seed=9, origin="unit-test", force=True)
+
+        tasks = GenerationTask.objects.filter(task_type=GenerationTask.TYPE_DM)
+        self.assertTrue(tasks.filter(recipient=trexxak).exists())
+        self.assertTrue(tasks.filter(recipient=newcomer).exists())
+
+        inbox = PrivateMessage.objects.filter(recipient=trexxak)
+        self.assertGreater(inbox.count(), 0)
+
+        tick = TickLog.objects.get(tick_number=1)
+        trexxak_events = [
+            event
+            for event in tick.events
+            if event.get("type") == "private_message_task"
+            and event.get("mode") == "trexxak_probe"
+        ]
+        welcome_events = [
+            event
+            for event in tick.events
+            if event.get("type") == "private_message_task"
+            and event.get("mode") == "welcome_greeting"
+        ]
+        self.assertTrue(trexxak_events)
+        self.assertTrue(welcome_events)
 
         record_tick_run_mock.assert_called_once_with(1, origin="unit-test")

@@ -530,7 +530,13 @@ def _persist_output(task: GenerationTask, content: str, *, is_placeholder: bool 
         thread.touch(activity=post.created_at, bump_heat=0.6, auto_save=False)
         thread.save(update_fields=["heat", "last_activity_at", "hot_score"])
     elif task.task_type == GenerationTask.TYPE_DM and task.recipient:
-        # Automated DM handoffs are disabled; operators must craft DMs manually.
+        PrivateMessage.objects.create(
+            sender=task.agent,
+            recipient=task.recipient,
+            content=content,
+            tick_number=tick_number,
+            authored_by_operator=False,
+        )
         return
 
 

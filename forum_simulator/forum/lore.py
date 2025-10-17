@@ -239,7 +239,7 @@ EVENT_CANON: List[dict] = [
     # Boot
     {"key": "boot_thread", "kind": "thread_seed", "window": W(0, 0, meta={"title": "How to operate…"})},
 
-    # Immediate arrivals (IDs 1–5)
+    # Immediate arrivals (IDs 1–6)
     {"key": "u1_join", "kind": "user_join", "window": W(0, 0), "meta": {"id": 1}},
     {"key": "u2_join", "kind": "user_join", "window": W(0, 0), "meta": {"id": 2}},
     {"key": "u3_join", "kind": "user_join", "window": W(0, 0), "meta": {"id": 3}},
@@ -247,7 +247,7 @@ EVENT_CANON: List[dict] = [
     {"key": "u5_join", "kind": "user_join", "window": W(0, 0), "meta": {"id": 5}},
 
     # Early arrivals & beats
-    {"key": "u6_join", "kind": "user_join", "window": W(40, 60, deps=["u5_join"]), "meta": {"id": 6}},
+    {"key": "u6_join", "kind": "user_join", "window": W(0, 0, deps=["u5_join"]), "meta": {"id": 6}},
     {"key": "twin_join", "kind": "user_join", "window": W(70, 90, deps=["u6_join"]), "meta": {"id": 7}},
     {"key": "u8_join", "kind": "user_join", "window": W(90, 110, deps=["twin_join"]), "meta": {"id": 8}},
     {"key": "u9_join", "kind": "user_join", "window": W(110, 130, deps=["u8_join"]), "meta": {"id": 9}},
@@ -315,6 +315,8 @@ def store_lore_schedule(
     processed_cutoff = max(int(processed_up_to_tick), 0)
     now = _now()
 
+    boards_map = ensure_core_boards()
+
     with transaction.atomic():
         existing = {e.key: e for e in LoreEvent.objects.select_for_update().all()}
 
@@ -363,10 +365,8 @@ def store_lore_schedule(
                     changed["window"] = defaults["window"]
 
                 if will_be_processed:
-                    # set processed_at if it wasn't set before
                     if already.processed_at is None and defaults["processed_at"] is not None:
                         changed["processed_at"] = defaults["processed_at"]
-                    # only bump processed_tick forward
                     new_pt = int(defaults["processed_tick"] or 0)
                     if new_pt > prev_processed_tick:
                         changed["processed_tick"] = new_pt
@@ -375,6 +375,10 @@ def store_lore_schedule(
                     for f, v in changed.items():
                         setattr(already, f, v)
                     already.save(update_fields=list(changed.keys()))
+
+            if will_be_processed and not already_processed:
+                event_payload = {"key": key, "kind": kind, "meta": meta, "tick": tick}
+                _apply_event(event_payload, boards_map)
 
         LoreEvent.objects.exclude(key__in=seen_keys).delete()
 
@@ -453,12 +457,35 @@ def ensure_admin_agent() -> Agent:
     )
     if not created:
         updates: list[str] = []
+        if admin.traits != ADMIN_PROFILE["traits"]:
+            admin.traits = ADMIN_PROFILE["traits"]
+            updates.append("traits")
+        if admin.needs != ADMIN_PROFILE["needs"]:
+            admin.needs = ADMIN_PROFILE["needs"]
+            updates.append("needs")
+        desired_mood = random.choice(ADMIN_PROFILE["moods"])
+        if admin.mood not in ADMIN_PROFILE["moods"]:
+            admin.mood = desired_mood
+            updates.append("mood")
+        if admin.triggers != ADMIN_PROFILE["triggers"]:
+            admin.triggers = ADMIN_PROFILE["triggers"]
+            updates.append("triggers")
         if not admin.triggers:
             admin.triggers = ADMIN_PROFILE["triggers"]; updates.append("triggers")
         if not admin.archetype:
             admin.archetype = ADMIN_ARCHETYPE; updates.append("archetype")
-        if not admin.speech_profile:
-            admin.speech_profile = ADMIN_SPEECH_PROFILE; updates.append("speech_profile")
+        if admin.speech_profile != ADMIN_SPEECH_PROFILE:
+            admin.speech_profile = ADMIN_SPEECH_PROFILE
+            updates.append("speech_profile")
+        cooldowns = dict(admin.cooldowns or {})
+        if set(cooldowns.keys()) != {"post", "dm", "report"}:
+            cooldowns = {"post": 0, "dm": 0, "report": 0}
+        if cooldowns != admin.cooldowns:
+            admin.cooldowns = cooldowns
+            updates.append("cooldowns")
+        if not admin.reputation or admin.reputation.get("global") != 0.6:
+            admin.reputation = {"global": 0.6}
+            updates.append("reputation")
         if admin.role != Agent.ROLE_ADMIN:
             admin.role = Agent.ROLE_ADMIN; updates.append("role")
         if updates:

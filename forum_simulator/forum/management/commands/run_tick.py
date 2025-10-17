@@ -1273,27 +1273,12 @@ class Command(BaseCommand):
             }
         )
         max_ai_tasks = config_service.get_int("AI_TASKS_PER_TICK", 4)
-        # Limit total tasks
-        def _limit_generation_actions(allocation, max_tasks: int):
-            try:
-                max_total = int(max_tasks)
-            except (TypeError, ValueError):
-                max_total = 4
-            if max_total is None or max_total <= 0:
-                max_total = 4
-            priority = ("replies", "threads", "private_messages")
-            remaining = max_total
-            for attr in priority:
-                current = getattr(allocation, attr, 0) or 0
-                current = int(current)
-                if remaining <= 0:
-                    setattr(allocation, attr, 0)
-                    continue
-                allowed = min(current, remaining)
-                setattr(allocation, attr, allowed)
-                remaining -= allowed
-            return allocation
-        allocation = _limit_generation_actions(allocation, max_ai_tasks)
+        limiter = tick_control.TickAllocationLimiter(
+            max_tasks=max_ai_tasks,
+            fallback=4,
+            min_dm_quota=1,
+        )
+        allocation = limiter.limit(allocation)
 
         # Disable random registrations if configured
         if DISABLE_RANDOM_PROFILES:
@@ -1997,8 +1982,6 @@ class Command(BaseCommand):
             if entry.get("type") == "allocation":
                 entry["private_messages"] = dm_total_planned
                 break
-
-        allocation.private_messages = 0
 
         # Drain DM generation tasks synchronously after scheduling
         _drain_queue_for(GenerationTask.TYPE_DM, max_loops=6, batch=12)

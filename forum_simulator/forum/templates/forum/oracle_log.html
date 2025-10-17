@@ -1,8 +1,28 @@
-﻿{% extends 'forum/base.html' %}
+{% extends 'forum/base.html' %}
 
 {% block title %}Oracle Timeline{% endblock %}
 
+{% block extra_body_end %}
+  {{ block.super }}
+  {{ draw_data|json_script:'oracle-draw-data' }}
+  {{ scrubber_data|json_script:'oracle-scrubber-data' }}
+  <script src="{% static 'forum/oracle.js' %}?v={{ static_version }}"></script>
+{% endblock %}
+
 {% block content %}
+<div class="panel oracle-console">
+    <h2>Oracle Console</h2>
+    <canvas class="oracle-canvas" data-oracle-canvas width="720" height="240" aria-label="Oracle energy timeline"></canvas>
+    <div class="oracle-scrubber">
+        <label class="oracle-scrubber__label">Scrub ticks
+            <input type="range" data-oracle-scrubber min="0" max="0" value="0" step="1" aria-label="Select tick">
+        </label>
+        <div class="oracle-meta" data-oracle-meta>
+            <p>Select a tick to review the oracle output.</p>
+        </div>
+    </div>
+</div>
+
 <div class="panel">
     <h2>Oracle Timeline</h2>
     <table>
@@ -11,6 +31,7 @@
                 <th>Tick</th>
                 <th>Rolls</th>
                 <th>Energy</th>
+                <th>Seed</th>
                 <th>Specials</th>
                 <th>Allocations</th>
             </tr>
@@ -21,6 +42,7 @@
                     <td><a href="{% url 'forum:tick_detail' draw.tick_number %}">{{ draw.tick_number }}</a></td>
                     <td>{{ draw.rolls|join:' + ' }}</td>
                     <td>{{ draw.energy }} -> {{ draw.energy_prime }}</td>
+                    <td>{{ draw.seed|default:'—' }}</td>
                     <td>
                         {% with specials=draw.alloc.specials %}
                             {% if specials %}
@@ -55,7 +77,7 @@
                     </td>
                 </tr>
             {% empty %}
-                <tr><td colspan="5">No oracle draws recorded yet.</td></tr>
+                <tr><td colspan="6">No oracle draws recorded yet.</td></tr>
             {% endfor %}
         </tbody>
     </table>

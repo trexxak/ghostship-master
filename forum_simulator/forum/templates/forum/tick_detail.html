@@ -1,49 +1,92 @@
-﻿{% extends 'forum/base.html' %}
+{% extends 'forum/base.html' %}
 
 {% block title %}Tick {{ tick.tick_number }} Detail{% endblock %}
+
+{% block extra_body_end %}
+  {{ block.super }}
+  {{ tick.events|json_script:'tick-events' }}
+  {{ tick.decision_trace|json_script:'tick-decision-trace' }}
+  {{ tick.config_snapshot|json_script:'tick-config' }}
+  <script>
+    (function() {
+      function renderEntries(container, entries) {
+        if (!container) {
+          return;
+        }
+        container.innerHTML = '';
+        if (!entries || !entries.length) {
+          const empty = document.createElement('p');
+          empty.className = 'meta';
+          empty.textContent = 'No entries recorded.';
+          container.appendChild(empty);
+          return;
+        }
+        entries.forEach(function(entry) {
+          const block = document.createElement('details');
+          block.className = 'tick-entry';
+          block.open = false;
+          const summary = document.createElement('summary');
+          summary.textContent = (entry.type || entry.phase || 'entry') + (entry.tick ? ' #' + entry.tick : '');
+          block.appendChild(summary);
+          const pre = document.createElement('pre');
+          pre.textContent = JSON.stringify(entry, null, 2);
+          block.appendChild(pre);
+          container.appendChild(block);
+        });
+      }
+
+      function parseScript(id) {
+        const el = document.getElementById(id);
+        if (!el) {
+          return null;
+        }
+        try {
+          return JSON.parse(el.textContent);
+        } catch (err) {
+          console.warn('Failed to parse', id, err);
+          return null;
+        }
+      }
+
+      renderEntries(document.querySelector('[data-events-container]'), parseScript('tick-events'));
+      renderEntries(document.querySelector('[data-decision-container]'), parseScript('tick-decision-trace'));
+      const configTarget = document.querySelector('[data-tick-config]');
+      const configData = parseScript('tick-config');
+      if (configTarget) {
+        configTarget.textContent = configData ? JSON.stringify(configData, null, 2) : 'No snapshot recorded.';
+      }
+    })();
+  </script>
+{% endblock %}
 
 {% block content %}
 <div class="panel">
     <h2>Tick {{ tick.tick_number }}</h2>
-    <p class="meta">{{ tick.timestamp|date:'Y-m-d H:i:s' }}</p>
-    {{ tick.events|json_script:'tick-events' }}
-    <div id="tick-events-container"></div>
+    <dl class="tick-meta">
+        <dt>Executed</dt>
+        <dd>{{ tick.timestamp|date:'Y-m-d H:i:s' }}</dd>
+        <dt>Seed</dt>
+        <dd>{{ tick.seed|default:'—' }}</dd>
+        {% if oracle %}
+        <dt>Energy</dt>
+        <dd>{{ oracle.energy }} → {{ oracle.energy_prime }}</dd>
+        <dt>Card</dt>
+        <dd>{{ oracle.card|default:'—' }}</dd>
+        {% endif %}
+    </dl>
+    <details class="tick-config">
+        <summary>Configuration snapshot</summary>
+        <pre data-tick-config class="tick-config__body"></pre>
+    </details>
 </div>
-<script>
-    (function() {
-        const dataEl = document.getElementById('tick-events');
-        const container = document.getElementById('tick-events-container');
-        if (!dataEl || !container) {
-            return;
-        }
-        try {
-            const events = JSON.parse(dataEl.textContent);
-            events.forEach((event) => {
-                const block = document.createElement('div');
-                block.style.background = '#181818';
-                block.style.padding = '12px';
-                block.style.marginBottom = '12px';
-                block.style.borderRadius = '6px';
 
-                const heading = document.createElement('div');
-                heading.style.fontWeight = 'bold';
-                heading.textContent = event.type || 'event';
-                block.appendChild(heading);
+<div class="panel">
+    <h3>Decision Trace</h3>
+    <div class="tick-log" data-decision-container></div>
+</div>
 
-                const pre = document.createElement('pre');
-                pre.style.whiteSpace = 'pre-wrap';
-                pre.style.background = '#111';
-                pre.style.padding = '8px';
-                pre.style.borderRadius = '4px';
-                pre.textContent = JSON.stringify(event, null, 2);
-                block.appendChild(pre);
-
-                container.appendChild(block);
-            });
-        } catch (error) {
-            container.textContent = 'Failed to render tick events.';
-            console.error('tick-detail', error);
-        }
-    })();
-</script>
+<div class="panel">
+    <h3>Event Log</h3>
+    <div class="tick-log" data-events-container></div>
+</div>
 {% endblock %}

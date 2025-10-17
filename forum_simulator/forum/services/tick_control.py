@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 from typing import Any, Dict, Optional
-from forum.services import configuration as config_service
+
 from django.utils import timezone
 
 from . import configuration as config_service
 
 FREEZE_STATE_KEY = "tick_freeze_state"
 LAST_TICK_KEY = "tick_last_run"
+MANUAL_OVERRIDE_KEY = "tick_manual_override"
 
 _DEFAULT_STATE: Dict[str, Any] = {
     "frozen": False,
@@ -105,3 +106,50 @@ def last_tick_run() -> Dict[str, Any]:
     except (TypeError, ValueError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def queue_manual_override(
+    *,
+    seed: int | None = None,
+    oracle_card: str | None = None,
+    energy_multiplier: float | None = None,
+    force: bool = False,
+    note: str | None = None,
+    origin: str | None = None,
+) -> Dict[str, Any]:
+    """Persist manual tick override parameters for the next scheduler run."""
+
+    payload: Dict[str, Any] = {
+        "seed": seed,
+        "oracle_card": oracle_card,
+        "energy_multiplier": energy_multiplier,
+        "force": bool(force),
+        "note": note,
+        "origin": origin or "manual-override",
+        "queued_at": timezone.now().isoformat(),
+    }
+    config_service.set_value(MANUAL_OVERRIDE_KEY, json.dumps(payload))
+    return payload
+
+
+def pending_manual_override() -> Dict[str, Any]:
+    """Return the currently queued override without consuming it."""
+
+    raw = config_service.get_value(MANUAL_OVERRIDE_KEY, "")
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def consume_manual_override() -> Dict[str, Any]:
+    """Fetch and clear the queued manual override parameters."""
+
+    payload = pending_manual_override()
+    if not payload:
+        return {}
+    config_service.set_value(MANUAL_OVERRIDE_KEY, "")
+    return payload

@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+import base64
+import hashlib
 import re
 from datetime import datetime, timedelta
 from typing import Any
@@ -8,6 +10,7 @@ from urllib.parse import quote_plus
 from django import template
 from django.conf import settings
 from django.urls import reverse
+
 from django.utils import timezone
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
@@ -118,6 +121,26 @@ def heat_tier(value: Any) -> str:
 _AGENT_CACHE: dict[str, Agent | None] = {}
 _MENTION_PATTERN = re.compile(
     r"\[(?P<bracket>[A-Za-z0-9_.-]{2,})\]|@(?P<at>[A-Za-z0-9_.-]{2,})")
+
+
+def _normalize_tripcode_length(length: Any) -> int:
+    try:
+        length_int = int(length)
+    except (TypeError, ValueError):
+        length_int = 8
+    return max(4, min(length_int, 16))
+
+
+@register.filter(name="tripcode")
+def tripcode(value: Any, length: int = 8) -> str:
+    """Generate a short, stable identifier for session keys."""
+    text = str(value or "").strip()
+    if not text:
+        return "????"
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+    encoded = base64.b32encode(digest).decode("ascii").rstrip("=")
+    window = _normalize_tripcode_length(length)
+    return encoded[:window]
 
 
 def _resolve_agent(name: str) -> Agent | None:

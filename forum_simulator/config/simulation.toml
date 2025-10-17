@@ -1,0 +1,316 @@
+version = 1
+
+[scheduler]
+interval_seconds = 60
+jitter_seconds = 12
+startup_delay_seconds = 10
+queue_burst = 10
+
+[cooldowns]
+thread = 12
+reply = 4
+post = 3
+dm = 6
+report = 8
+
+[needs]
+floor = 0.1
+ceiling = 0.95
+drift_jitter = 0.025
+
+[needs.baseline]
+attention = 0.55
+status = 0.45
+belonging = 0.62
+novelty = 0.5
+catharsis = 0.48
+
+[needs.drift]
+attention = -0.05
+status = -0.035
+belonging = -0.028
+novelty = -0.04
+catharsis = -0.045
+
+[mood]
+suspicion_bias = 0.18
+
+[[mood.bands]]
+label = "exhausted"
+threshold = 0.25
+
+[[mood.bands]]
+label = "strained"
+threshold = 0.45
+
+[[mood.bands]]
+label = "steady"
+threshold = 0.65
+
+[[mood.bands]]
+label = "bright"
+threshold = 0.82
+
+[[mood.bands]]
+label = "radiant"
+threshold = 1.0
+
+[suspicion]
+decay = 0.035
+floor = 0.0
+ceiling = 1.0
+report_relief = 0.08
+dm_penalty = 0.03
+
+[reputation]
+decay = 0.02
+floor = -1.0
+ceiling = 1.0
+boost_per_report = 0.05
+
+[action_bias.reply]
+cooldown_penalty = 0.35
+
+[action_bias.reply.needs]
+belonging = 0.45
+attention = 0.35
+novelty = 0.18
+
+[action_bias.thread]
+cooldown_penalty = 0.45
+
+[action_bias.thread.needs]
+status = 0.4
+novelty = 0.5
+attention = 0.32
+
+[action_bias.dm]
+cooldown_penalty = 0.25
+
+[action_bias.dm.needs]
+belonging = 0.55
+catharsis = 0.42
+
+[action_bias.post]
+cooldown_penalty = 0.2
+
+[action_bias.post.needs]
+attention = 0.5
+belonging = 0.32
+catharsis = 0.28
+
+[action_bias.report]
+suspicion_weight = 0.65
+cooldown_penalty = 0.4
+
+[action_bias.report.needs]
+status = 0.52
+catharsis = 0.2
+
+[oracle]
+forum_capacity = 10000
+omen_probability = 0.01
+seance_threshold = 12
+seance_probability = 0.12
+seance_reply_multiplier = 2.0
+seance_pm_multiplier = 1.6
+seance_thread_floor = 1
+deck_path = "forum_simulator/config/oracle_deck.json"
+
+[[archetypes]]
+code = "hothead"
+label = "Hothead"
+starting_mood = ["agitated", "fired-up", "wired"]
+suspicion_base = 0.18
+reputation_base = 0.28
+prefixes = ["Molten", "Trigger", "Voltage", "Combust"]
+suffixes = ["Spark", "Riot", "Lag", "Fury"]
+triggers = ["callouts", "balance", "respect"]
+cooldowns = { thread = 10, reply = 3, dm = 5 }
+
+[archetypes.traits]
+agreeableness = 0.25
+neuroticism = 0.7
+openness = 0.45
+
+[archetypes.needs]
+attention = 0.8
+status = 0.55
+belonging = 0.3
+novelty = 0.6
+catharsis = 0.75
+
+[archetypes.speech_profile]
+min_words = 16
+max_words = 36
+mean_words = 24
+sentence_low = 1
+sentence_high = 3
+burst_chance = 0.22
+burst_low = 6
+burst_high = 14
+
+[[archetypes]]
+code = "contrarian"
+label = "Contrarian"
+starting_mood = ["smirking", "arch", "cool"]
+suspicion_base = 0.12
+reputation_base = 0.34
+prefixes = ["Sideways", "Counter", "Oblique", "Skew"]
+suffixes = ["Angle", "Clause", "Take", "Vector"]
+triggers = ["dogma", "consensus", "predictions"]
+cooldowns = { thread = 11, reply = 3, dm = 4 }
+
+[archetypes.traits]
+agreeableness = 0.4
+neuroticism = 0.45
+openness = 0.7
+
+[archetypes.needs]
+attention = 0.45
+status = 0.6
+belonging = 0.35
+novelty = 0.55
+catharsis = 0.4
+
+[archetypes.speech_profile]
+min_words = 20
+max_words = 44
+mean_words = 30
+sentence_low = 2
+sentence_high = 4
+burst_chance = 0.12
+burst_low = 10
+burst_high = 18
+
+[[archetypes]]
+code = "helper"
+label = "Helper"
+starting_mood = ["warm", "steady", "concerned"]
+suspicion_base = 0.08
+reputation_base = 0.45
+prefixes = ["Patch", "Kindling", "Socket", "Guide"]
+suffixes = ["Beacon", "Thread", "Tether", "Pledge"]
+triggers = ["support", "community", "burnout"]
+cooldowns = { thread = 9, reply = 2, dm = 4 }
+
+[archetypes.traits]
+agreeableness = 0.8
+neuroticism = 0.35
+openness = 0.6
+
+[archetypes.needs]
+attention = 0.35
+status = 0.4
+belonging = 0.75
+novelty = 0.45
+catharsis = 0.35
+
+[archetypes.speech_profile]
+min_words = 14
+max_words = 32
+mean_words = 22
+sentence_low = 1
+sentence_high = 3
+burst_chance = 0.18
+burst_low = 8
+burst_high = 14
+
+[[archetypes]]
+code = "lorekeeper"
+label = "Lorekeeper"
+starting_mood = ["nostalgic", "pedantic", "wistful"]
+suspicion_base = 0.1
+reputation_base = 0.36
+prefixes = ["Archive", "Footnote", "Dusty", "Chron"]
+suffixes = ["Ghost", "Scribe", "Stack", "Ledger"]
+triggers = ["history", "documentation", "lost posts"]
+cooldowns = { thread = 13, reply = 4, dm = 5 }
+
+[archetypes.traits]
+agreeableness = 0.55
+neuroticism = 0.4
+openness = 0.85
+
+[archetypes.needs]
+attention = 0.4
+status = 0.5
+belonging = 0.55
+novelty = 0.3
+catharsis = 0.45
+
+[archetypes.speech_profile]
+min_words = 24
+max_words = 52
+mean_words = 34
+sentence_low = 2
+sentence_high = 4
+burst_chance = 0.08
+burst_low = 14
+burst_high = 24
+
+[[archetypes]]
+code = "memetic"
+label = "Meme-Smith"
+starting_mood = ["giddy", "mischievous", "chaotic"]
+suspicion_base = 0.14
+reputation_base = 0.3
+prefixes = ["Glitch", "Pixel", "Noise", "Foam"]
+suffixes = ["Loop", "Chorus", "Meme", "Static"]
+triggers = ["format wars", "inside jokes", "emoji"]
+cooldowns = { thread = 8, reply = 3, dm = 5 }
+
+[archetypes.traits]
+agreeableness = 0.6
+neuroticism = 0.35
+openness = 0.9
+
+[archetypes.needs]
+attention = 0.7
+status = 0.45
+belonging = 0.5
+novelty = 0.8
+catharsis = 0.55
+
+[archetypes.speech_profile]
+min_words = 12
+max_words = 26
+mean_words = 18
+sentence_low = 1
+sentence_high = 2
+burst_chance = 0.3
+burst_low = 5
+burst_high = 12
+
+[[archetypes]]
+code = "watcher"
+label = "Watchdog"
+starting_mood = ["alert", "dry", "suspicious"]
+suspicion_base = 0.22
+reputation_base = 0.4
+prefixes = ["Audit", "Checksum", "Paranoid", "Metric"]
+suffixes = ["Sentinel", "Fail", "Watch", "Trace"]
+triggers = ["standards", "moderation", "transparency"]
+cooldowns = { thread = 14, reply = 4, dm = 3 }
+
+[archetypes.traits]
+agreeableness = 0.45
+neuroticism = 0.6
+openness = 0.55
+
+[archetypes.needs]
+attention = 0.25
+status = 0.5
+belonging = 0.4
+novelty = 0.35
+catharsis = 0.5
+
+[archetypes.speech_profile]
+min_words = 13
+max_words = 28
+mean_words = 20
+sentence_low = 1
+sentence_high = 2
+burst_chance = 0.2
+burst_low = 6
+burst_high = 12

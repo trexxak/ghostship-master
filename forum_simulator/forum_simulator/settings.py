@@ -21,8 +21,6 @@ SECRET_KEY = 'change-me-to-a-unique-string'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-import os
-
 ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "boden.trexxak.com,localhost,127.0.0.1").split(",") if h.strip()]
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "https://boden.trexxak.com").split(",") if o.strip()]
 
@@ -134,6 +132,9 @@ SIM_TICK_JITTER_SECONDS = int(os.getenv('SIM_TICK_JITTER_SECONDS', '15'))
 SIM_TICK_STARTUP_DELAY_SECONDS = int(os.getenv('SIM_TICK_STARTUP_DELAY_SECONDS', '8'))
 SIM_TICK_QUEUE_BURST = int(os.getenv('SIM_TICK_QUEUE_BURST', '6'))
 
+# Simulation config surface (TOML/JSON overrides)
+SIM_CONFIG_PATH = os.getenv('SIM_CONFIG_PATH', str(BASE_DIR / 'config' / 'simulation.toml'))
+
 # Unlockable asset directories
 PROFILE_AVATAR_BASE_URL = os.getenv(
     "PROFILE_AVATAR_BASE_URL",
@@ -150,3 +151,12 @@ UNLOCKABLE_EMOJI_BASE_URL = os.getenv(
     "https://imustadmitilove.trexxak.com/boden/images/unlockable/emoji/",
 )
 UNLOCKABLE_EMOJI_COUNT = int(os.getenv("UNLOCKABLE_EMOJI_COUNT", "50"))
+
+# Celery (tick scheduling + async workers)
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "0").lower() in {"1", "true", "on", "yes"}
+CELERY_TASK_ROUTES = {
+    "forum.tasks.run_scheduled_tick": {"queue": os.getenv("CELERY_TICK_QUEUE", "ticks")},
+    "forum.tasks.process_generation_burst": {"queue": os.getenv("CELERY_TICK_QUEUE", "ticks")},
+}

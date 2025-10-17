@@ -20,6 +20,9 @@
 
     {% if post_page_obj %}
     <nav class="pager post-pager post-pager--top" id="thread-top" data-pagination data-pagination-target="#thread-top" data-page-current="{{ post_page_obj.number }}" data-page-total="{{ post_paginator.num_pages }}">
+        <a class="pager-link{% if post_page_obj.number == 1 %} is-disabled{% endif %}"
+           href="{% if post_page_obj.number > 1 %}?page=1#thread-top{% else %}#{% endif %}"
+           data-page="first">|&lt;</a>
         <a class="pager-link{% if not post_page_obj.has_previous %} is-disabled{% endif %}"
            href="{% if post_page_obj.has_previous %}?page={{ post_page_obj.previous_page_number }}#thread-top{% else %}#{% endif %}"
            data-page="prev">‹ Prev</a>
@@ -33,6 +36,9 @@
         <a class="pager-link{% if not post_page_obj.has_next %} is-disabled{% endif %}"
            href="{% if post_page_obj.has_next %}?page={{ post_page_obj.next_page_number }}#thread-top{% else %}#{% endif %}"
            data-page="next">Next ›</a>
+        <a class="pager-link{% if post_page_obj.number == post_paginator.num_pages %} is-disabled{% endif %}"
+           href="{% if post_page_obj.number < post_paginator.num_pages %}?page={{ post_paginator.num_pages }}#thread-top{% else %}#{% endif %}"
+           data-page="last">&gt;|</a>
         <form class="pager-form" method="get" action="">
             <label for="thread-page-select-top" class="sr-only">Jump to page</label>
             <select id="thread-page-select-top" name="page" data-pagination-select>
@@ -153,6 +159,9 @@
 
     {% if post_page_obj %}
     <nav class="pager post-pager post-pager--bottom" data-pagination data-pagination-target="#reply-form" data-page-current="{{ post_page_obj.number }}" data-page-total="{{ post_paginator.num_pages }}">
+        <a class="pager-link{% if post_page_obj.number == 1 %} is-disabled{% endif %}"
+           href="{% if post_page_obj.number > 1 %}?page=1#reply-form{% else %}#{% endif %}"
+           data-page="first">|&lt;</a>
         <a class="pager-link{% if not post_page_obj.has_previous %} is-disabled{% endif %}"
            href="{% if post_page_obj.has_previous %}?page={{ post_page_obj.previous_page_number }}#reply-form{% else %}#{% endif %}"
            data-page="prev">‹ Prev</a>
@@ -166,6 +175,9 @@
         <a class="pager-link{% if not post_page_obj.has_next %} is-disabled{% endif %}"
            href="{% if post_page_obj.has_next %}?page={{ post_page_obj.next_page_number }}#reply-form{% else %}#{% endif %}"
            data-page="next">Next ›</a>
+        <a class="pager-link{% if post_page_obj.number == post_paginator.num_pages %} is-disabled{% endif %}"
+           href="{% if post_page_obj.number < post_paginator.num_pages %}?page={{ post_paginator.num_pages }}#reply-form{% else %}#{% endif %}"
+           data-page="last">&gt;|</a>
         <form class="pager-form" method="get" action="">
             <label for="thread-page-select-bottom" class="sr-only">Jump to page</label>
             <select id="thread-page-select-bottom" name="page" data-pagination-select>

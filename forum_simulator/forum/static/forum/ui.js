@@ -778,10 +778,14 @@ const Soundboard = {
             return;
           }
           event.preventDefault();
-          if (target === "prev") {
+          if (target === "first") {
+            navigate(1);
+          } else if (target === "prev") {
             navigate(current - 1);
           } else if (target === "next") {
             navigate(current + 1);
+          } else if (target === "last") {
+            navigate(total);
           } else {
             navigate(Number(target));
           }

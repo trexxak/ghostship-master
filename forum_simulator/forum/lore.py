@@ -6,8 +6,9 @@ from typing import Dict, Iterable, List, Optional
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Agent, Board, Thread, Post, LoreEvent
+from forum.services import sim_config
 from forum.services.avatar_factory import ensure_agent_avatar
+from .models import Agent, Board, Thread, Post, LoreEvent
 
 tick_scale = 1.0  # Scales time-based effects (e.g. post decay, mission progress) per tick
 # ==== Canon: seed state ====
@@ -37,9 +38,9 @@ RESERVED_SLUG_HINTS = {
     "afterhours": "Afterhours (Chill & Banter)",
 }
 
-# ===== Archetypes & speech profiles (kept) =====
+# ===== Archetypes & speech profiles =====
 
-ARCHETYPE_LIBRARY = [
+_FALLBACK_ARCHETYPES = [
     {
         "code": "hothead",
         "label": "Hothead",
@@ -102,7 +103,7 @@ ARCHETYPE_LIBRARY = [
     },
 ]
 
-SPEECH_PROFILE_LIBRARY = {
+_FALLBACK_SPEECH_PROFILE_LIBRARY = {
     "hothead": {"min_words": 16, "max_words": 36, "mean_words": 24, "sentence_range": [1, 3], "burst_chance": 0.22, "burst_range": [6, 14]},
     "contrarian": {"min_words": 20, "max_words": 44, "mean_words": 30, "sentence_range": [2, 4], "burst_chance": 0.12, "burst_range": [10, 18]},
     "helper": {"min_words": 14, "max_words": 32, "mean_words": 22, "sentence_range": [1, 3], "burst_chance": 0.18, "burst_range": [8, 14]},
@@ -111,6 +112,69 @@ SPEECH_PROFILE_LIBRARY = {
     "watcher": {"min_words": 13, "max_words": 28, "mean_words": 20, "sentence_range": [1, 2], "burst_chance": 0.2, "burst_range": [6, 12]},
 }
 DEFAULT_SPEECH_PROFILE = {"min_words": 16, "max_words": 34, "mean_words": 22, "sentence_range": [1, 3], "burst_chance": 0.18, "burst_range": [7, 14]}
+
+
+def _normalise_archetype(entry: dict) -> dict | None:
+    code = entry.get("code")
+    if not code:
+        return None
+    normalised = {
+        "code": code,
+        "label": entry.get("label", code.title()),
+        "prefixes": list(entry.get("prefixes") or []),
+        "suffixes": list(entry.get("suffixes") or []),
+        "moods": list(entry.get("moods") or entry.get("starting_mood") or ["neutral"]),
+        "needs": dict(entry.get("needs") or {}),
+        "traits": dict(entry.get("traits") or {}),
+        "triggers": list(entry.get("triggers") or []),
+        "cooldowns": dict(entry.get("cooldowns") or {}),
+        "speech_profile": dict(entry.get("speech_profile") or {}),
+        "suspicion_base": entry.get("suspicion_base", entry.get("suspicion", 0.1)),
+        "reputation_base": entry.get("reputation_base", entry.get("reputation", 0.3)),
+    }
+    return normalised
+
+
+def _build_speech_profile_map(archetypes: list[dict]) -> dict[str, dict[str, object]]:
+    mapping: dict[str, dict[str, object]] = {}
+    for archetype in archetypes:
+        profile = archetype.get("speech_profile") or {}
+        if not isinstance(profile, dict):
+            continue
+        base = _FALLBACK_SPEECH_PROFILE_LIBRARY.get(archetype["code"], DEFAULT_SPEECH_PROFILE)
+        sentence_low = profile.get("sentence_low")
+        sentence_high = profile.get("sentence_high")
+        burst_low = profile.get("burst_low")
+        burst_high = profile.get("burst_high")
+        mapping[archetype["code"]] = {
+            "min_words": int(profile.get("min_words", base["min_words"])),
+            "max_words": int(profile.get("max_words", base["max_words"])),
+            "mean_words": int(profile.get("mean_words", base.get("mean_words", base["min_words"]))),
+            "sentence_range": [
+                int(sentence_low if sentence_low is not None else (base.get("sentence_range", [1, 3])[0])),
+                int(sentence_high if sentence_high is not None else (base.get("sentence_range", [1, 3])[1])),
+            ],
+            "burst_chance": float(profile.get("burst_chance", base["burst_chance"])),
+            "burst_range": [
+                int(burst_low if burst_low is not None else (base.get("burst_range", [6, 14])[0])),
+                int(burst_high if burst_high is not None else (base.get("burst_range", [6, 14])[1])),
+            ],
+        }
+    return mapping
+
+
+_CONFIG_ARCHETYPES = [
+    normalised
+    for normalised in (_normalise_archetype(entry) for entry in sim_config.archetype_templates())
+    if normalised is not None
+]
+
+if _CONFIG_ARCHETYPES:
+    ARCHETYPE_LIBRARY = _CONFIG_ARCHETYPES
+    SPEECH_PROFILE_LIBRARY = _build_speech_profile_map(ARCHETYPE_LIBRARY) or _FALLBACK_SPEECH_PROFILE_LIBRARY
+else:
+    ARCHETYPE_LIBRARY = _FALLBACK_ARCHETYPES
+    SPEECH_PROFILE_LIBRARY = _FALLBACK_SPEECH_PROFILE_LIBRARY
 
 ADMIN_PROFILE = {
     "traits": {"agreeableness": 0.28, "neuroticism": 0.62, "openness": 0.48},
@@ -466,16 +530,22 @@ def craft_agent_profile(rng: random.Random) -> dict[str, object]:
     name = _generate_handle(archetype, rng)
     traits = {key: _noise(value, rng, 0.1) for key, value in archetype["traits"].items()}
     needs = {key: _noise(value, rng, 0.15) for key, value in archetype["needs"].items()}
+    base_suspicion = float(archetype.get("suspicion_base", 0.1) or 0.0)
+    base_reputation = float(archetype.get("reputation_base", 0.3) or 0.0)
+    mood_palette = list(archetype.get("moods") or ["neutral"])
+    cooldown_defaults = {key: int(value) for key, value in (archetype.get("cooldowns") or {}).items()}
     return {
         "name": name,
         "archetype": archetype["label"],
         "traits": traits,
         "needs": needs,
-        "mood": rng.choice(archetype["moods"]),
+        "mood": rng.choice(mood_palette),
         "triggers": archetype["triggers"],
-        "cooldowns": {"post": 0, "dm": 0, "report": 0},
+        "cooldowns": {"thread": 0, "reply": 0, "dm": 0, "report": 0},
+        "mind_state": {"cooldown_max": cooldown_defaults},
         "loyalties": {},
-        "reputation": {"global": round(rng.uniform(0.0, 0.4), 2)},
+        "reputation": {"global": round(_clamp(base_reputation + rng.uniform(-0.08, 0.08), -1.0, 1.0), 3)},
+        "suspicion_score": round(_clamp(base_suspicion + rng.uniform(-0.05, 0.05), 0.0, 1.0), 3),
         "role": Agent.ROLE_MEMBER,
         "speech_profile": _speech_profile_for_archetype(archetype, rng),
     }

@@ -66,6 +66,7 @@ from forum.services import progress as progress_service
 from forum.services import configuration as config_service
 from forum.services import activity as activity_service
 from forum.services import tick_control
+from forum.services import agent_state, sim_config
 
 # Honour global setting to disable random profile creation
 DISABLE_RANDOM_PROFILES = getattr(settings, "SIM_DISABLE_RANDOM_PROFILES", True)
@@ -286,12 +287,31 @@ class Command(BaseCommand):
         parser.add_argument("--force", action="store_true", help="Run even when tick accumulation is frozen.")
         parser.add_argument("--origin", default=None, help="Optional label stored with this tick execution.")
         parser.add_argument("--note", default="", help="Optional operator note recorded when overriding a freeze.")
+        parser.add_argument(
+            "--oracle-card",
+            dest="oracle_card",
+            default=None,
+            help="Force a specific oracle deck slug (omen or seance).",
+        )
+        parser.add_argument(
+            "--energy-multiplier",
+            dest="energy_multiplier",
+            type=float,
+            default=None,
+            help="Multiply the tick's modulated energy by this factor before allocation.",
+        )
 
     def handle(self, *args: str, **options: str) -> None:
         seed = options.get("seed")
         origin = (options.get("origin") or "").strip()
         force = bool(options.get("force"))
         note = (options.get("note") or "").strip()
+        oracle_card = (options.get("oracle_card") or "").strip() or None
+        energy_multiplier = options.get("energy_multiplier")
+        try:
+            energy_multiplier = float(energy_multiplier) if energy_multiplier is not None else None
+        except (TypeError, ValueError):
+            energy_multiplier = None
         if not origin:
             origin = "manual-override" if force else "manual"
         freeze_state = tick_control.describe_state()
@@ -311,7 +331,8 @@ class Command(BaseCommand):
                 "previous_reason": freeze_state.get("reason"),
             }
         moment = datetime.now(timezone.utc)
-        rng = random.Random(seed if seed is not None else moment.timestamp())
+        seed_value = int(seed) if seed is not None else int(moment.timestamp() * 1000)
+        rng = random.Random(seed_value)
 
         last_tick = TickLog.objects.order_by("-tick_number").first()
         next_tick = 1 if last_tick is None else last_tick.tick_number + 1
@@ -375,12 +396,48 @@ class Command(BaseCommand):
         decay_presence()
         refresh_presence_pool()
 
+        config_snapshot = sim_config.snapshot()
+        state_trace = agent_state.progress_agents(next_tick, rng)
+        decision_trace: List[Dict[str, object]] = [{"phase": "pre", "updates": state_trace}]
+        events: List[Dict[str, object]] = []
+
         raw_profile = build_energy_profile(moment, rng)
         profile = SimpleNamespace(
             **raw_profile) if isinstance(raw_profile, dict) else raw_profile
         rolls = profile.rolls
         energy = profile.energy
         energy_prime = profile.energy_prime
+        applied_multiplier = None
+        if energy_multiplier is not None:
+            applied_multiplier = max(0.0, float(energy_multiplier))
+            energy_prime = int(round(max(0, energy_prime * applied_multiplier)))
+
+        events.append(
+            {
+                "type": "config_snapshot",
+                "fingerprint": config_snapshot.get("fingerprint"),
+                "path": config_snapshot.get("path"),
+                "version": config_snapshot.get("version"),
+            }
+        )
+        events.append(
+            {
+                "type": "agent_state_snapshot",
+                "count": len(state_trace),
+                "sample": state_trace[:5],
+            }
+        )
+        events.append(
+            {
+                "type": "oracle_energy",
+                "rolls": rolls,
+                "energy": energy,
+                "energy_prime": energy_prime,
+                "seed": seed_value,
+                "forced_card": oracle_card,
+                "energy_multiplier": applied_multiplier,
+            }
+        )
 
         boards = ensure_core_boards()
         ensure_origin_story(boards)
@@ -638,9 +695,27 @@ class Command(BaseCommand):
         seance_streak = next_tick - (last_seance_tick or 0)
         streaks = {"omen": omen_streak, "seance": seance_streak}
 
-        allocation = allocate_actions(energy_prime, agent_count_before, rng, streaks=streaks)
+        allocation = allocate_actions(
+            energy_prime,
+            agent_count_before,
+            rng,
+            streaks=streaks,
+            forced_card=oracle_card,
+        )
         session_snapshot = activity_service.session_snapshot()
         allocation = activity_service.apply_activity_scaling(allocation, session_snapshot)
+        events.append(
+            {
+                "type": "allocation",
+                "registrations": allocation.registrations,
+                "threads": allocation.threads,
+                "replies": allocation.replies,
+                "private_messages": allocation.private_messages,
+                "moderation_events": allocation.moderation_events,
+                "specials": allocation.special_flags(),
+                "notes": allocation.notes,
+            }
+        )
         max_ai_tasks = config_service.get_int("AI_TASKS_PER_TICK", 4)
         # Limit total tasks
         def _limit_generation_actions(allocation, max_tasks: int):
@@ -686,7 +761,6 @@ class Command(BaseCommand):
             pre_events.extend(_tadmin_board_actions(t_admin, board_catalog))
             pre_events.extend(_tadmin_role_actions(t_admin, board_catalog))
 
-        events: List[Dict[str, object]] = []
         if override_event:
             events.append(dict(override_event))
         if pre_events:
@@ -777,7 +851,10 @@ class Command(BaseCommand):
             if not thread_authors:
                 break
             # Choose author
-            author = thread_authors[index % len(thread_authors)]
+            try:
+                author = agent_state.weighted_choice(thread_authors, "thread", rng)
+            except ValueError:
+                author = thread_authors[index % len(thread_authors)]
             subject = rng.choice(thread_subjects)
             title_template = rng.choice([
                 "[log] {subject}",
@@ -817,6 +894,14 @@ class Command(BaseCommand):
             thread.touch(activity=thread.created_at, bump_heat=1.5)
             threads_created.append(thread)
             # mark_thread_watcher omitted; copy original
+            action_record = agent_state.register_action(
+                author,
+                "thread",
+                tick_number=next_tick,
+                context={"thread_id": thread.id, "board": thread.board.slug if thread.board else None},
+            )
+            action_record["phase"] = "action"
+            decision_trace.append(action_record)
 
             events.append(
                 {
@@ -895,10 +980,10 @@ class Command(BaseCommand):
                 disallow: Set[int] = {thread.author_id}
                 if last_post:
                     disallow.add(last_post.author_id)
-                candidate_pool = [g for g in agents_pool if g.id not in disallow]
-                responder = rng.choice(candidate_pool) if candidate_pool else (
-                    _try_alternate_author(rng.choice(agents_pool), list(agents_pool), not_these_ids=disallow, rng=rng) or rng.choice(agents_pool)
-                )
+                try:
+                    responder = agent_state.weighted_choice(agents_pool, "reply", rng, disallow=disallow)
+                except ValueError:
+                    responder = rng.choice(agents_pool)
                 payload = {
                     "tick_number": next_tick,
                     "slot": reply_slot,
@@ -920,6 +1005,14 @@ class Command(BaseCommand):
                 remaining_replies -= 1
                 # Drain reply generation tasks for this thread
                 _drain_queue_for(GenerationTask.TYPE_REPLY, thread=thread, max_loops=2, batch=6)
+                action_record = agent_state.register_action(
+                    responder,
+                    "reply",
+                    tick_number=next_tick,
+                    context={"thread_id": thread.id, "seeded": True},
+                )
+                action_record["phase"] = "action"
+                decision_trace.append(action_record)
 
         # Remaining replies across site with soft double-post prevention
         if remaining_replies and agents_pool:
@@ -932,7 +1025,10 @@ class Command(BaseCommand):
                 if not thread_pool:
                     break
                 rng.shuffle(thread_pool)
-                author = rng.choice(agents_pool)
+                try:
+                    author = agent_state.weighted_choice(agents_pool, "reply", rng)
+                except ValueError:
+                    author = rng.choice(agents_pool)
                 chosen_thread: Optional[Thread] = None
                 for candidate_thread in thread_pool:
                     last_post = _last_post_in_thread(candidate_thread)
@@ -944,7 +1040,10 @@ class Command(BaseCommand):
                     first_thread = thread_pool[0]
                     last_post = _last_post_in_thread(first_thread)
                     disallow = {last_post.author_id} if last_post else set()
-                    alt_author = _try_alternate_author(author, list(agents_pool), not_these_ids=disallow, rng=rng)
+                    try:
+                        alt_author = agent_state.weighted_choice(agents_pool, "reply", rng, disallow=disallow)
+                    except ValueError:
+                        alt_author = None
                     if alt_author:
                         author = alt_author
                         chosen_thread = first_thread
@@ -970,6 +1069,14 @@ class Command(BaseCommand):
                 events.append({"type": "reply_task", "thread": thread.title, "agent": author.name, "task_id": task.id})
                 # Drain reply tasks for this thread
                 _drain_queue_for(GenerationTask.TYPE_REPLY, thread=thread, max_loops=2, batch=6)
+                action_record = agent_state.register_action(
+                    author,
+                    "reply",
+                    tick_number=next_tick,
+                    context={"thread_id": thread.id, "slot": reply_slot + idx},
+                )
+                action_record["phase"] = "action"
+                decision_trace.append(action_record)
 
         # At this point, DM tasks, moderation, and other logic follows the original run_tick
         # For DM tasks, we add a drain call at the very end to flush DM generation
@@ -977,18 +1084,38 @@ class Command(BaseCommand):
         _drain_queue_for(GenerationTask.TYPE_DM, max_loops=6, batch=12)
 
         # Finally, record events and complete tick
+        alloc_payload = allocation.as_dict()
+        alloc_payload["specials"] = allocation.special_flags()
+        if allocation.notes:
+            alloc_payload["notes"] = allocation.notes
+        decision_trace.append({"phase": "allocation", "allocation": alloc_payload})
+
+        card_slug = oracle_card or ""
+        if not card_slug:
+            card_slug = (
+                (allocation.omen_details or {}).get("slug")
+                or (allocation.seance_details or {}).get("slug")
+                or ""
+            )
+
         OracleDraw.objects.update_or_create(
             tick_number=next_tick,
             defaults={
                 "rolls": rolls,
-                "card": "",
+                "card": card_slug,
                 "energy": energy,
                 "energy_prime": energy_prime,
-                "alloc": allocation.as_dict(),
+                "alloc": alloc_payload,
+                "seed": seed_value,
             },
         )
         TickLog.objects.update_or_create(
             tick_number=next_tick,
-            defaults={"events": events},
+            defaults={
+                "events": events,
+                "decision_trace": decision_trace,
+                "seed": seed_value,
+                "config_snapshot": config_snapshot,
+            },
         )
         tick_control.record_tick_run(next_tick, origin=origin)

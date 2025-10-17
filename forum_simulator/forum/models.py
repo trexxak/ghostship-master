@@ -658,6 +658,7 @@ class OracleDraw(models.Model):
     energy = models.IntegerField(default=0)
     energy_prime = models.IntegerField(default=0)
     alloc = models.JSONField(default=dict, blank=True)
+    seed = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ["tick_number"]
@@ -672,6 +673,9 @@ class TickLog(models.Model):
     tick_number = models.PositiveIntegerField(unique=True)
     timestamp = models.DateTimeField(auto_now_add=True)
     events = models.JSONField(default=list, blank=True)
+    decision_trace = models.JSONField(default=list, blank=True)
+    seed = models.BigIntegerField(null=True, blank=True)
+    config_snapshot = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["tick_number"]

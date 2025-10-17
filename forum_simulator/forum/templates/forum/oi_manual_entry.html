@@ -1,5 +1,5 @@
 {% extends 'forum/base.html' %}
-{% load forum_extras forum_extras_new %}
+{% load forum_extras %}
 
 {% block title %}Trexxak Manual Draft{% endblock %}
 
@@ -145,7 +145,13 @@
     <h3>Preview</h3>
     <article class="bulletin-post">
         <div class="meta">
-            <span class="ghost-handle role-{{ organism.role }}">trexxak <span class="flag flag-operator" title="Instance identifier">#{{ oi_session_key|tripcode }}</span></span>
+            <span class="ghost-handle role-{{ organism.role }}">trexxak
+                {% if oi_session_key %}
+                <span class="flag flag-operator" title="Instance identifier">#{{ oi_session_key|tripcode }}</span>
+                {% else %}
+                <span class="flag flag-operator" title="Operator typed">Operator-typed</span>
+                {% endif %}
+            </span>
         </div>
         <div class="post-body">
             {{ preview|format_post }}

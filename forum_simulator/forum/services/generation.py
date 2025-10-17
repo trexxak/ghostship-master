@@ -240,6 +240,11 @@ def _build_prompt(task: GenerationTask) -> str:
         "Prefer grounded, evidence-focused language rather than retro web slang or forced nostalgia.",
     ]
 
+    mind_state = agent.mind_state if isinstance(agent.mind_state, dict) else {}
+    signature_hint = mind_state.get("persona_signature") or mind_state.get("signature")
+    if signature_hint:
+        persona_bits.append(f"Voice sample: {signature_hint}")
+
     needs = agent.needs or {}
     if needs:
         focused = sorted(

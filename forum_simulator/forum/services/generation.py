@@ -248,7 +248,8 @@ def _build_prompt(task: GenerationTask) -> str:
         f"Participant profile: name={agent.name if getattr(agent, 'name', None) else 'unknown'}, archetype={archetype}, mood={mood}.",
         "Use these attributes as guidance for tone and perspective; avoid repeating the agent's handle unless it reads naturally.",
         "When referring to yourself or any other ghost, write the handle with an @ prefix (e.g. @trexxak) instead of leading the post with 'Name -'.",
-        "Observe organics with curiosity and candor; respond like a focused investigator.",
+        "Write like an engaged forum regular who mixes receipts with reactions and the occasional aside.",
+        "Let a little personality leak through—curiosity, humor, or concern are welcome as long as the evidence stays clear.",
         "Prefer grounded, evidence-focused language rather than retro web slang or forced nostalgia.",
     ]
 
@@ -407,6 +408,8 @@ def _build_prompt(task: GenerationTask) -> str:
     if task.task_type == GenerationTask.TYPE_REPLY:
         context.append(
             "Anchor the reply in the organic being discussed and bring a new observation or pointed question.")
+        context.append(
+            "Blend the intel with at least one natural-sounding reaction so it feels like a live forum reply, not a diagnostic log.")
         if mentionable:
             context.append(
                 "If you tag another ghost, choose from the mentionable list and explain why they matter here.")
@@ -419,6 +422,8 @@ def _build_prompt(task: GenerationTask) -> str:
     elif task.task_type == GenerationTask.TYPE_THREAD_START:
         context.append(
             "Frame the situation clearly and point to the evidence or questions that kicked off this watch.")
+        context.append(
+            "Sound like you're opening a real discussion—set the stakes, add a quick personal hook, and welcome others in.")
     elif task.task_type == GenerationTask.TYPE_DM:
         context.append(
             "Keep the tone direct and collaborative while swapping actionable intel.")

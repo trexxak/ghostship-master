@@ -51,7 +51,9 @@
     }
     const draw = draws[Math.min(Math.max(index, 0), draws.length - 1)];
     const trace = findScrubberEntry(draw.tick);
-    const specials = formatSpecials(draw.specials || draw.alloc?.specials);
+    const alloc = draw.alloc || null;
+    const specialsSource = draw.specials || (alloc && alloc.specials) || null;
+    const specials = formatSpecials(specialsSource);
     const notes = Array.isArray(draw.notes) ? draw.notes.join(' | ') : '';
     const eventCount = Array.isArray(trace.events) ? trace.events.length : 0;
     const decisionCount = typeof trace.decision_count === 'number' ? trace.decision_count : 0;
@@ -87,7 +89,11 @@
       return;
     }
 
-    const energies = draws.flatMap((entry) => [entry.energy || 0, entry.energy_prime || 0]);
+    const energies = [];
+    draws.forEach((entry) => {
+      energies.push(entry.energy || 0);
+      energies.push(entry.energy_prime || 0);
+    });
     const maxEnergy = Math.max(...energies, 1);
     const minEnergy = Math.min(...energies, 0);
     const range = Math.max(maxEnergy - minEnergy, 1);

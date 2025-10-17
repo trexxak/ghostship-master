@@ -315,6 +315,8 @@ def store_lore_schedule(
     processed_cutoff = max(int(processed_up_to_tick), 0)
     now = _now()
 
+    boards_map = ensure_core_boards()
+
     with transaction.atomic():
         existing = {e.key: e for e in LoreEvent.objects.select_for_update().all()}
 
@@ -363,10 +365,8 @@ def store_lore_schedule(
                     changed["window"] = defaults["window"]
 
                 if will_be_processed:
-                    # set processed_at if it wasn't set before
                     if already.processed_at is None and defaults["processed_at"] is not None:
                         changed["processed_at"] = defaults["processed_at"]
-                    # only bump processed_tick forward
                     new_pt = int(defaults["processed_tick"] or 0)
                     if new_pt > prev_processed_tick:
                         changed["processed_tick"] = new_pt
@@ -375,6 +375,10 @@ def store_lore_schedule(
                     for f, v in changed.items():
                         setattr(already, f, v)
                     already.save(update_fields=list(changed.keys()))
+
+            if will_be_processed and not already_processed:
+                event_payload = {"key": key, "kind": kind, "meta": meta, "tick": tick}
+                _apply_event(event_payload, boards_map)
 
         LoreEvent.objects.exclude(key__in=seen_keys).delete()
 

@@ -854,6 +854,8 @@ class Command(BaseCommand):
                 )
             return summary
 
+        board_loads: Dict[int, int] = {}
+
         def _parse_thread_ideas(raw_text: str) -> List[Dict[str, object]]:
             cleaned = (raw_text or "").strip()
             if not cleaned:
@@ -911,6 +913,113 @@ class Command(BaseCommand):
         ) -> List[Dict[str, object]]:
             if count <= 0:
                 return []
+
+            def _compact_phrase(text: str, *, max_words: int = 6) -> str:
+                tokens = re.findall(r"[a-z0-9]{3,}", (text or "").lower())
+                if not tokens:
+                    return ""
+                return " ".join(tokens[:max_words])
+
+            def _fallback_thread_briefs_from_context(
+                requested: int,
+                *,
+                context: dict,
+            ) -> List[Dict[str, object]]:
+                if requested <= 0:
+                    return []
+                glimpses: List[str] = []
+                for post in context.get("recent_posts", []) or []:
+                    snippet = (post.get("snippet") or "").strip()
+                    if snippet:
+                        glimpses.append(snippet)
+                    title = (post.get("thread") or "").strip()
+                    if title:
+                        glimpses.append(title)
+                for note in context.get("notes", []) or []:
+                    cleaned = (note or "").strip()
+                    if cleaned:
+                        glimpses.append(cleaned)
+                for request in context.get("board_requests", []) or []:
+                    label = (request.get("name") or request.get("slug") or "").strip()
+                    if label:
+                        glimpses.append(label)
+                for event in context.get("lore_events", []) or []:
+                    label = (event.get("label") or "").strip()
+                    if label:
+                        glimpses.append(label)
+                if not glimpses:
+                    glimpses = [
+                        "odd telemetry",
+                        "maintenance backlog",
+                        "trexxak ping cascade",
+                        "field kit rumors",
+                        "operator whisper queue",
+                    ]
+
+                counts_snapshot = dict(board_loads)
+                ideas: List[Dict[str, object]] = []
+                for idx in range(requested):
+                    available_boards = [
+                        board
+                        for board in boards.values()
+                        if board and not board.is_hidden and not board.is_garbage
+                    ] or [b for b in boards.values() if b]
+                    if not available_boards:
+                        break
+                    available_boards.sort(
+                        key=lambda b: (
+                            counts_snapshot.get(b.id, 0),
+                            int(getattr(b, "position", 0) or 0),
+                            b.slug,
+                        )
+                    )
+                    board_choice = available_boards[idx % len(available_boards)]
+                    counts_snapshot[board_choice.id] = counts_snapshot.get(board_choice.id, 0) + 1
+
+                    seed = glimpses[(idx + rng.randint(0, len(glimpses) - 1)) % len(glimpses)]
+                    subject_core = _compact_phrase(seed)
+                    subject_label = subject_core.title() if subject_core else board_choice.name
+                    topics: List[str] = [board_choice.slug]
+                    tokens = re.findall(r"[a-z0-9]{3,}", seed.lower())
+                    rng.shuffle(tokens)
+                    for token in tokens:
+                        slug = _normalize_topic_slug(token)
+                        if slug and slug not in topics:
+                            topics.append(slug)
+                        if len(topics) >= 3:
+                            break
+                    while len(topics) < 2:
+                        filler = rng.choice(["intel", "watch", "receipts", "signal", "log"])
+                        filler_slug = _normalize_topic_slug(filler)
+                        if filler_slug not in topics:
+                            topics.append(filler_slug)
+                    title_template = rng.choice(
+                        [
+                            "{board} dispatch: {subject}",
+                            "{subject} :: {board}",
+                            "[watch] {subject}",
+                            "{board} checkpoint – {subject}",
+                        ]
+                    )
+                    title = title_template.format(board=board_choice.name, subject=subject_label)
+                    hook = rng.choice(
+                        [
+                            f"Collect receipts about {subject_label.lower()} before the signal cools.",
+                            f"Line up what we know about {subject_label.lower()} inside {board_choice.name}.",
+                            f"Kick off a sweep on {subject_label.lower()} — follow the weird telemetry.",
+                        ]
+                    )
+                    ideas.append(
+                        {
+                            "title": title,
+                            "hook": hook,
+                            "topics": topics,
+                            "subject": subject_label,
+                            "_board_slug": board_choice.slug,
+                        }
+                    )
+                return ideas
+
             context_blob = {
                 "tick": next_tick,
                 "oracle": {
@@ -941,9 +1050,9 @@ class Command(BaseCommand):
             result = generate_completion(prompt, max_tokens=420, temperature=0.4)
             raw_text = result.get("text") if isinstance(result, dict) else None
             ideas = _parse_thread_ideas(raw_text or "")
-            if not ideas:
-                return []
-            return ideas
+            if ideas:
+                return ideas
+            return _fallback_thread_briefs_from_context(count, context=context_blob)
 
         # Include previously defined _relocate_thread_by_marker for board routing
         def _relocate_thread_by_marker(thread: Thread, author: Agent, *, boards_map: Dict[str, Board]) -> Board | None:
@@ -1329,6 +1438,18 @@ class Command(BaseCommand):
         # Refresh boards map after any new boards created in pre_events or lore events
         boards = {b.slug: b for b in Board.objects.all()}
 
+        board_loads.clear()
+        for board in boards.values():
+            if board:
+                board_loads[board.id] = 0
+        for row in (
+            Thread.objects.values("board_id").annotate(total=Count("id"))
+        ):
+            board_id = row.get("board_id")
+            if board_id is None:
+                continue
+            board_loads[board_id] = row.get("total", 0)
+
         # Pre-compute board-level watchers and other structures (unchanged from original)
 
         # Determine allowed agents (excluding banned and organic)
@@ -1386,10 +1507,21 @@ class Command(BaseCommand):
             except ValueError:
                 author = thread_authors[index % len(thread_authors)]
             plan = thread_briefs[index] if index < len(thread_briefs) else None
+            if plan is None:
+                fallback_plan = _propose_thread_briefs(
+                    1,
+                    allocation_notes=ideation_notes,
+                    seance_info=seance_details,
+                    omen_info=omen_details,
+                )
+                plan = fallback_plan[0] if fallback_plan else {}
             hook = None
             subject = None
             topics: List[str] = []
-            if plan:
+            planned_slug = None
+            title = ""
+            if isinstance(plan, dict) and plan:
+                planned_slug = plan.get("_board_slug")
                 title = (plan.get("title") or "").strip()
                 hook = (plan.get("hook") or "").strip() or None
                 subject = (plan.get("subject") or "").strip() or None
@@ -1401,28 +1533,40 @@ class Command(BaseCommand):
                         slug = _normalize_topic_slug(str(raw_topic))
                         if slug:
                             topics.append(slug)
-                if not title:
-                    template_subject = subject or rng.choice(DEFAULT_THREAD_SUBJECTS)
-                    title = rng.choice([
-                        "[log] {subject}",
-                        "{subject} // please advise",
-                        "{subject} :: new data drop",
-                        "help archive {subject}",
-                    ]).format(subject=template_subject)
-                if not topics:
-                    topics = rng.choice(FALLBACK_TOPIC_SUGGESTIONS).copy()
-            else:
-                subject = rng.choice(DEFAULT_THREAD_SUBJECTS)
-                title_template = rng.choice([
+            if not title:
+                template_subject = subject or rng.choice(DEFAULT_THREAD_SUBJECTS)
+                title = rng.choice([
                     "[log] {subject}",
                     "{subject} // please advise",
                     "{subject} :: new data drop",
                     "help archive {subject}",
-                ])
-                title = title_template.format(subject=subject)
+                ]).format(subject=template_subject)
+            if not topics:
                 topics = rng.choice(FALLBACK_TOPIC_SUGGESTIONS).copy()
             title = title[:THREAD_TITLE_MAX_LENGTH]
-            board = choose_board_for_thread(boards, topics, rng)
+
+            board_hint = boards.get(planned_slug) if planned_slug else None
+            if board_hint and board_hint.slug not in topics:
+                topics.insert(0, board_hint.slug)
+            board = board_hint or choose_board_for_thread(boards, topics, rng)
+            if not board:
+                continue
+
+            canonical_topics: List[str] = []
+            if getattr(board, "slug", None):
+                canonical_topics.append(board.slug)
+            for topic in topics:
+                slug = _normalize_topic_slug(topic)
+                if slug and slug not in canonical_topics:
+                    canonical_topics.append(slug)
+                if len(canonical_topics) >= 4:
+                    break
+            topics = canonical_topics or [board.slug]
+            while len(topics) < 2:
+                filler = rng.choice(["intel", "watch", "receipts", "signal", "log"])
+                filler_slug = _normalize_topic_slug(filler)
+                if filler_slug not in topics:
+                    topics.append(filler_slug)
 
             # Soft double-post prevention at board level: avoid same author back-to-back
             last_board_post = _last_post_in_board(board)
@@ -1441,6 +1585,7 @@ class Command(BaseCommand):
                         board = rng.choice(alt_boards)
 
             theme_pack = rng.choice(THEME_PACKS)
+            original_board_slug = board.slug if board else None
             thread = Thread.objects.create(
                 title=title,
                 author=author,
@@ -1451,6 +1596,8 @@ class Command(BaseCommand):
             )
             thread.touch(activity=thread.created_at, bump_heat=1.5)
             threads_created.append(thread)
+            if thread.board_id:
+                board_loads[thread.board_id] = board_loads.get(thread.board_id, 0) + 1
             # mark_thread_watcher omitted; copy original
             action_record = agent_state.register_action(
                 author,
@@ -1520,10 +1667,23 @@ class Command(BaseCommand):
             # Synchronously drain thread start tasks
             _drain_queue_for(GenerationTask.TYPE_THREAD_START, thread=thread, max_loops=6, batch=5)
             # Relocate thread based on LLM's board selection
+            original_board_id = thread.board_id
             try:
                 moved_to = _relocate_thread_by_marker(thread, author, boards_map=boards)
-                if moved_to:
+                if moved_to and moved_to.id != original_board_id:
                     events.append({"type": "thread_relocate", "thread": thread.title, "to": moved_to.slug})
+                    if original_board_id:
+                        board_loads[original_board_id] = max(0, board_loads.get(original_board_id, 0) - 1)
+                    board_loads[moved_to.id] = board_loads.get(moved_to.id, 0) + 1
+                    current_topics = list(thread.topics or [])
+                    filtered_topics = [
+                        slug
+                        for slug in current_topics
+                        if slug not in {moved_to.slug, original_board_slug}
+                    ]
+                    filtered_topics.insert(0, moved_to.slug)
+                    thread.topics = filtered_topics[:4]
+                    thread.save(update_fields=["topics"])
             except Exception:
                 pass
             events.append({"type": "thread_task", "task_id": start_task.id, "thread": thread.title})
@@ -1674,6 +1834,8 @@ class Command(BaseCommand):
         dm_slot = 0
         admin_id = admin_actor.id if admin_actor else None
 
+        welcome_reserve = len(welcome_targets)
+
         recent_threads = list(threads_created)
         thread_ids = {thread.id for thread in recent_threads if getattr(thread, "id", None)}
         extra_needed = max(0, 12 - len(recent_threads))
@@ -1700,7 +1862,7 @@ class Command(BaseCommand):
 
         pending_peer_replies = pending_peer_dm_replies(dm_budget, admin_id=admin_id)
         for responder, partner, last_message in pending_peer_replies:
-            if dm_budget - organic_reserve <= 0:
+            if dm_budget - organic_reserve - welcome_reserve <= 0:
                 break
             if responder.role == Agent.ROLE_BANNED:
                 continue
@@ -1717,11 +1879,11 @@ class Command(BaseCommand):
             }
             if excerpt:
                 payload["recent_message"] = excerpt
-            payload["event_context"] = event_context
-            task = enqueue_generation_task(
-                task_type=GenerationTask.TYPE_DM,
-                agent=responder,
-                recipient=partner,
+                payload["event_context"] = event_context
+                task = enqueue_generation_task(
+                    task_type=GenerationTask.TYPE_DM,
+                    agent=responder,
+                    recipient=partner,
                 payload=payload,
             )
             events.append(
@@ -1776,6 +1938,7 @@ class Command(BaseCommand):
                 )
                 dm_budget -= 1
                 dm_slot += 1
+                welcome_reserve = max(welcome_reserve - 1, 0)
 
                 if dm_budget - organic_reserve <= 0:
                     break

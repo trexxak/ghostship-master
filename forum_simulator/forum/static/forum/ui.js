@@ -327,13 +327,20 @@ const Soundboard = {
         }
         const payload = await response.json();
         if (!payload || !Array.isArray(payload.html) || payload.html.length === 0) {
-          lastPostId = Number(payload?.latest_post_id || lastPostId || 0);
+          let latestPostValue = lastPostId || 0;
+          if (payload && payload.latest_post_id) {
+            latestPostValue = payload.latest_post_id;
+          }
+          lastPostId = Number(latestPostValue);
           stream.dataset.lastPostId = String(lastPostId);
           return;
         }
         payload.html.forEach((html, index) => {
           stream.insertAdjacentHTML("beforeend", html);
-          const postData = payload.posts?.[index];
+          let postData = null;
+          if (payload && Array.isArray(payload.posts)) {
+            postData = payload.posts[index];
+          }
           if (postData && postData.id) {
             const node = stream.querySelector(`#post-${postData.id}`);
             if (node) {

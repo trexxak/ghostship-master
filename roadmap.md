@@ -17,6 +17,7 @@ This document consolidates the outstanding feature and infrastructure work acros
 ## Simulation Core & Agent Behaviour
 - Wire cooldown management and tick scheduling so agents honour post/thread/DM/report cooldown windows.
 - Update loyalties and faction graphs from PN and reply exchanges to reflect relationship shifts.
+- **Organic simulation relationship memories:** Persist per-ghost counterpart journals (DM partners and recurring thread voices), expose them to the generator prompts, and validate the emotional carryover so allied ghosts reinforce shared stances while sparring rivals push back consistently.
 
 ## Agent Factory & Content Generation
 - Enrich the agent factory with archetype templates (traits, triggers, initial needs, loyalty seeds).

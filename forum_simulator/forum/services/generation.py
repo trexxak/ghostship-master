@@ -19,11 +19,149 @@ logger = logging.getLogger(__name__)
 QUEUE_BATCH_SIZE = getattr(settings, "GENERATION_QUEUE_BATCH_SIZE", 3)
 RETRY_DELAY_SECONDS = getattr(settings, "GENERATION_RETRY_DELAY_SECONDS", 60)
 MEMORY_MAX = getattr(settings, "AGENT_MEMORY_MAX_ENTRIES", 12)
+PEER_MEMORY_MAX = getattr(settings, "AGENT_PEER_MEMORY_MAX_ENTRIES", 4)
+PEER_TRACK_MAX = getattr(settings, "AGENT_PEER_MEMORY_MAX_PEERS", 12)
+THREAD_MEMORY_MAX = getattr(settings, "AGENT_THREAD_MEMORY_MAX_ENTRIES", 6)
+THREAD_TRACK_MAX = getattr(settings, "AGENT_THREAD_MEMORY_MAX_THREADS", 20)
 MENTION_TOKEN_PATTERN = re.compile(r"@([A-Za-z0-9_.-]{2,})|\[([A-Za-z0-9_.-]{2,})\]")
 BATCHABLE_TYPES = {
     GenerationTask.TYPE_REPLY,
     GenerationTask.TYPE_DM,
 }
+
+
+def _normalize_agent_memory(raw: Any) -> dict[str, Any]:
+    """Ensure the agent memory follows the structured schema."""
+
+    if not raw:
+        return {"global": [], "peers": {}, "threads": {}}
+
+    if isinstance(raw, list):
+        trimmed = [entry for entry in raw if entry][-MEMORY_MAX:]
+        return {"global": trimmed, "peers": {}, "threads": {}}
+
+    if isinstance(raw, dict):
+        global_entries = raw.get("global") or []
+        if not isinstance(global_entries, list):
+            global_entries = []
+        else:
+            global_entries = [entry for entry in global_entries if entry][-MEMORY_MAX:]
+
+        peers_raw = raw.get("peers") or {}
+        peers: dict[str, dict[str, Any]] = {}
+        if isinstance(peers_raw, dict):
+            for key, info in peers_raw.items():
+                if not isinstance(info, dict):
+                    continue
+                notes = info.get("notes") or info.get("memory") or []
+                if not isinstance(notes, list):
+                    notes = []
+                peers[str(key)] = {
+                    "handle": info.get("handle"),
+                    "notes": [note for note in notes if note][-MEMORY_MAX:],
+                    "last_seen": info.get("last_seen"),
+                }
+        threads_raw = raw.get("threads") or {}
+        threads: dict[str, dict[str, Any]] = {}
+        if isinstance(threads_raw, dict):
+            for key, info in threads_raw.items():
+                if not isinstance(info, dict):
+                    continue
+                notes = info.get("notes") or []
+                if not isinstance(notes, list):
+                    notes = []
+                threads[str(key)] = {
+                    "title": info.get("title"),
+                    "topics": info.get("topics"),
+                    "notes": [note for note in notes if note][-THREAD_MEMORY_MAX:],
+                    "last_seen": info.get("last_seen"),
+                }
+        return {"global": global_entries, "peers": peers, "threads": threads}
+
+    return {"global": [], "peers": {}, "threads": {}}
+
+
+def _format_memory_snippet(entry: Any) -> str | None:
+    if isinstance(entry, str):
+        return entry[:160]
+    if isinstance(entry, dict):
+        summary = (entry.get("summary") or entry.get("text") or "").strip()
+        thread_title = (entry.get("thread_title") or "").strip()
+        channel = (entry.get("channel") or "").strip()
+        topic_bits = entry.get("topics") or []
+        parts: list[str] = []
+        if summary:
+            parts.append(summary[:160])
+        if thread_title:
+            parts.append(f"in {thread_title}")
+        if channel and not thread_title:
+            parts.append(channel)
+        if topic_bits:
+            if isinstance(topic_bits, list):
+                trimmed_topics = ", ".join(str(bit) for bit in topic_bits[:3])
+                if trimmed_topics:
+                    parts.append(f"topics: {trimmed_topics}")
+            elif isinstance(topic_bits, str):
+                parts.append(f"topics: {topic_bits}")
+        snippet = "; ".join(part for part in parts if part)
+        return snippet or None
+    return None
+
+
+def _render_peer_memories(memory: dict[str, Any], participant_ids: set[int], labels: dict[int, str]) -> list[str]:
+    peers = memory.get("peers") or {}
+    if not isinstance(peers, dict):
+        return []
+
+    rendered: list[str] = []
+    for pid in participant_ids:
+        peer_info = peers.get(str(pid))
+        if not peer_info or not isinstance(peer_info, dict):
+            continue
+        notes = peer_info.get("notes") or []
+        if not isinstance(notes, list) or not notes:
+            continue
+        handle = peer_info.get("handle") or labels.get(pid) or f"user {pid}"
+        snippets = []
+        for note in notes[-PEER_MEMORY_MAX:]:
+            snippet = _format_memory_snippet(note)
+            if snippet:
+                snippets.append(snippet)
+        if not snippets:
+            continue
+        rendered.append(f"- {handle}: " + " | ".join(snippets))
+    return rendered[:3]
+
+
+def _render_thread_memories(memory: dict[str, Any], thread_id: int | None) -> list[str]:
+    if thread_id is None:
+        return []
+    threads = memory.get("threads") or {}
+    if not isinstance(threads, dict):
+        return []
+
+    thread_entry = threads.get(str(thread_id))
+    if not thread_entry or not isinstance(thread_entry, dict):
+        return []
+
+    notes = thread_entry.get("notes") or []
+    if not isinstance(notes, list):
+        return []
+
+    rendered: list[str] = []
+    for note in notes[-THREAD_MEMORY_MAX:]:
+        snippet = _format_memory_snippet(note)
+        if snippet:
+            rendered.append(f"- {snippet}")
+    if not rendered:
+        return []
+
+    title = thread_entry.get("title")
+    if title:
+        header = f"Thread memories from '{title}':"
+    else:
+        header = "Thread memories:"
+    return [header, *rendered[:4]]
 
 def _table_exists(table: str, using: str = "default") -> bool:
     try:
@@ -258,6 +396,7 @@ def _build_prompt(task: GenerationTask) -> str:
     if signature_hint:
         persona_bits.append(f"Voice sample: {signature_hint}")
 
+    memory_state = _normalize_agent_memory(agent.memory)
     needs = agent.needs or {}
     if needs:
         focused = sorted(
@@ -265,17 +404,16 @@ def _build_prompt(task: GenerationTask) -> str:
         persona_bits.append(
             "Key drives: " + ", ".join(f"{k} {v:.2f}" for k, v in focused))
 
-    memory_lines = [entry for entry in (agent.memory or []) if entry][-3:]
     context: list[str] = persona_bits
-    if memory_lines:
+    global_memories = memory_state.get("global") or []
+    rendered_global: list[str] = []
+    for memo in global_memories[-3:]:
+        snippet = _format_memory_snippet(memo)
+        if snippet:
+            rendered_global.append(f"- {snippet}")
+    if rendered_global:
         context.append("Things you still remember:")
-        for memo in memory_lines:
-            if isinstance(memo, str):
-                context.append(f"- {memo[:160]}")
-            else:
-                snippet = memo.get("summary") or memo.get("text") or ""
-                if snippet:
-                    context.append(f"- {snippet[:160]}")
+        context.extend(rendered_global)
 
     mentionable: list[str] = []
     length_hint: dict[str, Any] | None = None
@@ -283,6 +421,13 @@ def _build_prompt(task: GenerationTask) -> str:
     agent_handle_lower = ""
     if getattr(agent, "name", None):
         agent_handle_lower = agent.name.lower()
+
+    participant_ids: set[int] = set()
+    participant_labels: dict[int, str] = {}
+    if task.recipient_id and getattr(task, "recipient", None):
+        participant_ids.add(task.recipient_id)
+        if getattr(task.recipient, "name", None):
+            participant_labels[task.recipient_id] = task.recipient.name
 
     if task.thread:
         exclude_post_id = task.payload.get("exclude_post_id")
@@ -302,12 +447,20 @@ def _build_prompt(task: GenerationTask) -> str:
             if opener_excerpt:
                 context.append("Thread opener:")
                 context.append(opener_excerpt)
+            if opener_post.author_id and opener_post.author_id != getattr(agent, "id", None):
+                participant_ids.add(opener_post.author_id)
+                if opener_post.author and getattr(opener_post.author, "name", None):
+                    participant_labels[opener_post.author_id] = opener_post.author.name
 
         recent_quotes: list[str] = []
         for post in reversed(recent_posts):
             excerpt = _format_post_excerpt(post)
             if excerpt:
                 recent_quotes.append(excerpt)
+            if post.author_id and post.author_id != getattr(agent, "id", None):
+                participant_ids.add(post.author_id)
+                if post.author and getattr(post.author, "name", None):
+                    participant_labels[post.author_id] = post.author.name
         if recent_quotes:
             context.append("Recent comments:")
             context.extend(recent_quotes)
@@ -329,16 +482,30 @@ def _build_prompt(task: GenerationTask) -> str:
                 excerpt = _format_post_excerpt(post)
                 if excerpt:
                     context.append(f"- {excerpt}")
+                if post.author_id and post.author_id != getattr(agent, "id", None):
+                    participant_ids.add(post.author_id)
+                    if post.author and getattr(post.author, "name", None):
+                        participant_labels[post.author_id] = post.author.name
 
         topics = task.payload.get("topics") or getattr(
             task.thread, "topics", []) or []
         if topics:
             context.append("Topics: " + ", ".join(topics))
 
+        thread_memories = _render_thread_memories(memory_state, task.thread_id)
+        if thread_memories:
+            context.extend(thread_memories)
+            context.append(
+                "Fold those remembered beats into your reply so it tracks with where the thread currently sits."
+            )
+
         mentionable_handles: set[str] = set()
         handle_to_excerpt: dict[str, str | None] = {}
         thread_author = getattr(task.thread, "author", None)
         if thread_author and getattr(thread_author, "name", None):
+            if thread_author.id and thread_author.id != getattr(agent, "id", None):
+                participant_ids.add(thread_author.id)
+                participant_labels.setdefault(thread_author.id, thread_author.name)
             if not agent_handle_lower or thread_author.name.lower() != agent_handle_lower:
                 mentionable_handles.add(thread_author.name)
                 if thread_author.name not in handle_to_excerpt and opener_post and opener_post.author_id == thread_author.id:
@@ -372,7 +539,11 @@ def _build_prompt(task: GenerationTask) -> str:
                         f"- @{handle}: no fresh post excerpt available—reference prior intel if you name them."
                     )
             context.append(
-                "Only mention ghosts listed above and anchor any tag to the cited detail; do not invent handles or tag yourself unless directly summoned."
+                "Mention only if you are directly responding to that ghost—otherwise let the update stand without a tag."
+            )
+        else:
+            context.append(
+                "You are not obligated to tag anyone here; share the update in your own voice unless a direct reply is needed."
             )
 
         theme = task.payload.get("theme")
@@ -404,6 +575,11 @@ def _build_prompt(task: GenerationTask) -> str:
             context.append(
                 "You authored the most recent comment—open with a light nod to avoid double-posting, or skip it only if it would distract from new intel."
             )
+
+    peer_memories = _render_peer_memories(memory_state, participant_ids, participant_labels)
+    if peer_memories:
+        context.append("Shared history cues:")
+        context.extend(peer_memories)
 
     if task.task_type == GenerationTask.TYPE_REPLY:
         context.append(
@@ -578,7 +754,8 @@ def _post_process_output(task: GenerationTask, content: str) -> tuple[bool, str 
 
     # Check agent memory for repeated tropes
     agent = task.agent
-    memory = agent.memory or []
+    memory_state = _normalize_agent_memory(agent.memory)
+    memory = memory_state.get("global") or []
     summary = content[:200]
     repeats = sum(1 for entry in memory[-6:] if isinstance(entry, dict) and (entry.get(
         'summary') or '') and (entry.get('summary') in summary or summary in (entry.get('summary') or '')))
@@ -615,19 +792,153 @@ def _reschedule_with_stricter_instruction(task: GenerationTask, reason: str) -> 
               'last_error', 'scheduled_for', 'status', 'updated_at'])
 
 
+def _peer_targets_for_task(task: GenerationTask) -> list[tuple[int, dict[str, Any]]]:
+    peers: list[tuple[int, dict[str, Any]]] = []
+
+    if task.recipient_id and getattr(task, "recipient", None):
+        peers.append(
+            (
+                task.recipient_id,
+                {
+                    "handle": getattr(task.recipient, "name", None),
+                    "channel": "direct message",
+                    "topics": task.payload.get("topics") if isinstance(task.payload, dict) else None,
+                },
+            )
+        )
+
+    if task.thread_id and getattr(task, "thread", None):
+        thread_title = getattr(task.thread, "title", None)
+        topics = task.payload.get("topics") if isinstance(task.payload, dict) else None
+        seen: set[int] = set()
+        thread_author_id = getattr(task.thread, "author_id", None)
+        if thread_author_id and thread_author_id != getattr(task.agent, "id", None):
+            seen.add(thread_author_id)
+            peers.append(
+                (
+                    thread_author_id,
+                    {
+                        "handle": getattr(getattr(task.thread, "author", None), "name", None),
+                        "channel": "thread reply",
+                        "thread_title": thread_title,
+                        "topics": topics,
+                    },
+                )
+            )
+
+        recent_posts = (
+            Post.objects.filter(thread_id=task.thread_id)
+            .exclude(author_id=getattr(task.agent, "id", None))
+            .select_related("author")
+            .order_by("-created_at")[:6]
+        )
+        for post in recent_posts:
+            if not post.author_id or post.author_id in seen:
+                continue
+            seen.add(post.author_id)
+            peers.append(
+                (
+                    post.author_id,
+                    {
+                        "handle": getattr(post.author, "name", None),
+                        "channel": "thread reply",
+                        "thread_title": thread_title,
+                        "topics": topics,
+                    },
+                )
+            )
+
+    return peers
+
+
 def _update_agent_memory(task: GenerationTask, content: str) -> None:
     agent = task.agent
-    memory = agent.memory or []
-    memory.append(
-        {
-            "ts": timezone.now().isoformat(),
-            "task": task.task_type,
-            "thread": task.thread_id,
-            "recipient": task.recipient_id,
+    memory = _normalize_agent_memory(agent.memory)
+
+    timestamp = timezone.now().isoformat()
+    entry = {
+        "ts": timestamp,
+        "task": task.task_type,
+        "thread": task.thread_id,
+        "recipient": task.recipient_id,
+        "summary": content[:200],
+    }
+
+    global_entries = memory.setdefault("global", [])
+    global_entries.append(entry)
+    memory["global"] = [item for item in global_entries if item][-MEMORY_MAX:]
+
+    peers = memory.setdefault("peers", {})
+    threads = memory.setdefault("threads", {})
+    thread_handles: list[str] = []
+    for peer_id, metadata in _peer_targets_for_task(task):
+        key = str(peer_id)
+        note = {
+            "ts": timestamp,
             "summary": content[:200],
+            "thread": task.thread_id,
+            "thread_title": metadata.get("thread_title"),
+            "channel": metadata.get("channel"),
         }
-    )
-    agent.memory = memory[-MEMORY_MAX:]
+        topics = metadata.get("topics")
+        if topics:
+            note["topics"] = topics
+
+        peer_entry = peers.get(key) if isinstance(peers.get(key), dict) else {}
+        notes = list(peer_entry.get("notes") or [])
+        notes.append(note)
+        peer_entry["notes"] = [item for item in notes if item][-max(1, PEER_MEMORY_MAX):]
+        peer_entry["handle"] = metadata.get("handle") or peer_entry.get("handle")
+        peer_entry["last_seen"] = timestamp
+        peers[key] = peer_entry
+        handle = metadata.get("handle")
+        if handle and handle not in thread_handles:
+            thread_handles.append(handle)
+
+    if len(peers) > PEER_TRACK_MAX:
+        sorted_peers = sorted(
+            peers.items(),
+            key=lambda item: item[1].get("last_seen") if isinstance(item[1], dict) else "",
+            reverse=True,
+        )
+        memory["peers"] = dict(sorted_peers[:PEER_TRACK_MAX])
+
+    if task.thread_id:
+        key = str(task.thread_id)
+        thread_entry = threads.get(key) if isinstance(threads.get(key), dict) else {}
+        notes = list(thread_entry.get("notes") or [])
+        note: dict[str, Any] = {
+            "ts": timestamp,
+            "summary": content[:200],
+            "thread_title": getattr(task.thread, "title", None),
+        }
+        topics = None
+        if isinstance(task.payload, dict):
+            topics = task.payload.get("topics")
+        if not topics and getattr(task.thread, "topics", None):
+            topics = getattr(task.thread, "topics")
+        if topics:
+            note["topics"] = topics
+        if thread_handles:
+            note["participants"] = thread_handles
+        notes.append(note)
+        thread_entry["notes"] = [item for item in notes if item][-max(1, THREAD_MEMORY_MAX):]
+        if getattr(task.thread, "title", None):
+            thread_entry["title"] = getattr(task.thread, "title", None)
+        if topics:
+            thread_entry["topics"] = topics
+        thread_entry["last_seen"] = timestamp
+        threads[key] = thread_entry
+
+    if len(threads) > THREAD_TRACK_MAX:
+        sorted_threads = sorted(
+            threads.items(),
+            key=lambda item: item[1].get("last_seen") if isinstance(item[1], dict) else "",
+            reverse=True,
+        )
+        memory["threads"] = dict(sorted_threads[:THREAD_TRACK_MAX])
+
+    agent.memory = memory
     agent.save(update_fields=["memory", "updated_at"])
 
 

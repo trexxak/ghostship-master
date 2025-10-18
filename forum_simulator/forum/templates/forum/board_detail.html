@@ -1,7 +1,4 @@
 {% extends "forum/ol_board_detail.html" %}
 {% block extra_body_end %}
   {{ block.super }}
-  <script>
-    window.dispatchEvent(new CustomEvent('metrics:update', { detail: { threads: +1 }}));
-  </script>
 {% endblock %}

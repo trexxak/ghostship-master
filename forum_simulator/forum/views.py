@@ -301,20 +301,63 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
     if selected_avatar_value:
         organism.avatar_slug = selected_avatar_value
 
-    # Collect private messages addressed to and sent from the organic user.
-    inbox_qs = (
-        PrivateMessage.objects.filter(recipient=organism)
-        .select_related("sender")
-        .order_by("-sent_at")
-    )
-    outbox_qs = (
-        PrivateMessage.objects.filter(sender=organism)
-        .select_related("recipient")
+    # Collect direct message history and group it into conversation threads so the
+    # inbox/outbox views can display the surrounding context for each partner.
+    dm_queryset = (
+        PrivateMessage.objects.filter(Q(sender=organism) | Q(recipient=organism))
+        .select_related("sender", "recipient")
         .order_by("-sent_at")
     )
 
-    inbox_paginator = Paginator(inbox_qs, 10)
-    outbox_paginator = Paginator(outbox_qs, 10)
+    threads_by_partner: dict[int, dict[str, object]] = {}
+    for message in dm_queryset:
+        partner = message.recipient if message.sender_id == organism.id else message.sender
+        if partner is None:
+            continue
+        direction = "outgoing" if message.sender_id == organism.id else "incoming"
+        thread = threads_by_partner.get(partner.id)
+        if thread is None:
+            thread = {
+                "partner": partner,
+                "messages": [],
+                "incoming_total": 0,
+                "outgoing_total": 0,
+                "last_sent_at": message.sent_at,
+                "last_message": message,
+                "last_direction": direction,
+            }
+            threads_by_partner[partner.id] = thread
+        payload = {
+            "message": message,
+            "direction": direction,
+        }
+        thread_messages: list[dict[str, object]] = thread.setdefault("messages", [])  # type: ignore[assignment]
+        thread_messages.append(payload)
+        if direction == "incoming":
+            thread["incoming_total"] = int(thread.get("incoming_total", 0)) + 1
+        else:
+            thread["outgoing_total"] = int(thread.get("outgoing_total", 0)) + 1
+        last_sent_at = thread.get("last_sent_at")
+        if last_sent_at is None or message.sent_at >= last_sent_at:  # type: ignore[operator]
+            thread["last_sent_at"] = message.sent_at
+            thread["last_message"] = message
+            thread["last_direction"] = direction
+
+    dm_threads: list[dict[str, object]] = []
+    for thread in threads_by_partner.values():
+        thread_messages = thread.get("messages", [])
+        if isinstance(thread_messages, list):
+            thread_messages.sort(key=lambda entry: entry["message"].sent_at)  # type: ignore[index]
+        thread["message_count"] = len(thread_messages) if isinstance(thread_messages, list) else 0
+        dm_threads.append(thread)
+
+    dm_threads.sort(key=lambda entry: entry["last_sent_at"], reverse=True)
+
+    inbox_threads_all = [thread for thread in dm_threads if int(thread.get("incoming_total", 0)) > 0]
+    outbox_threads_all = [thread for thread in dm_threads if int(thread.get("outgoing_total", 0)) > 0]
+
+    inbox_paginator = Paginator(inbox_threads_all, 10)
+    outbox_paginator = Paginator(outbox_threads_all, 10)
 
     inbox_page_number = request.GET.get("inbox_page") or 1
     outbox_page_number = request.GET.get("outbox_page") or 1
@@ -386,10 +429,22 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
         "organism": organism,
         "inbox": inbox_page_obj.object_list,
         "outbox": outbox_page_obj.object_list,
+        "inbox_threads": inbox_page_obj.object_list,
+        "outbox_threads": outbox_page_obj.object_list,
         "inbox_page_obj": inbox_page_obj,
         "outbox_page_obj": outbox_page_obj,
         "inbox_paginator": inbox_paginator,
         "outbox_paginator": outbox_paginator,
+        "dm_thread_count": len(dm_threads),
+        "dm_recipient_options": [
+            {
+                "id": agent.id,
+                "name": agent.name,
+                "archetype": agent.archetype,
+                "role": agent.role,
+            }
+            for agent in Agent.objects.exclude(role=Agent.ROLE_ORGANIC).order_by("name")
+        ],
         "agent_goals": agent_goals,
         "available_avatars": avatar_options,
         "selected_avatar": selected_avatar_value,
@@ -514,6 +569,33 @@ def _log_organic_action(
     )
 
 
+def _queue_metrics_delta(request: HttpRequest, **delta: int) -> None:
+    if not hasattr(request, "session"):
+        return
+    session = request.session
+    if session.session_key is None:
+        session.save()
+    stored = session.get("progress_metrics_delta")
+    if not isinstance(stored, dict):
+        stored = {}
+    changed = False
+    for key in ("threads", "replies", "reports"):
+        value = delta.get(key)
+        if not value:
+            continue
+        try:
+            numeric = int(value)
+        except (TypeError, ValueError):
+            continue
+        if numeric == 0:
+            continue
+        stored[key] = int(stored.get(key, 0) or 0) + numeric
+        changed = True
+    if changed:
+        session["progress_metrics_delta"] = stored
+        session.modified = True
+
+
 def _active_organic_agent(request: HttpRequest) -> Agent:
     agent = getattr(request, "oi_agent", None) or _organic_agent()
     if agent is None:
@@ -595,6 +677,7 @@ def _create_operator_post(
         content=content,
         metadata=metadata,
     )
+    _queue_metrics_delta(request, replies=1)
     return post
 
 
@@ -670,6 +753,7 @@ def _create_operator_thread(
         content=content,
         metadata=metadata,
     )
+    _queue_metrics_delta(request, threads=1, replies=1)
     return thread
 
 
@@ -1295,6 +1379,7 @@ def report_post(request: HttpRequest, pk: int) -> HttpResponse:
                     "post_author": post.author.name,
                 },
             )
+            _queue_metrics_delta(request, reports=1)
             messages.success(
                 request, "Thanks for the flag. The moderation team will review this report.")
             return redirect("forum:thread_detail", pk=post.thread_id)

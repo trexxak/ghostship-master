@@ -296,6 +296,59 @@ const Soundboard = {
     setTimeout(hideTicker, 20000);
   }
 
+  function renderAchievementBroadcasts() {
+    const container = document.querySelector("[data-broadcast-container]");
+    if (!container) {
+      return;
+    }
+    const broadcasts = parseJsonScript("progress-broadcasts-data");
+    if (!Array.isArray(broadcasts) || broadcasts.length === 0) {
+      return;
+    }
+
+    const showBroadcast = (payload) => {
+      const node = document.createElement("article");
+      node.className = "achievement-broadcast";
+      node.setAttribute("role", "status");
+      const targetThread = payload.thread_id ? `/threads/${payload.thread_id}/` : "";
+      const targetFragment = payload.post_id ? `#post-${payload.post_id}` : "";
+      const targetUrl = targetThread ? `${targetThread}${targetFragment}` : targetFragment;
+      node.innerHTML = `
+        <div class="achievement-broadcast__halo"></div>
+        <div class="achievement-broadcast__content">
+          <div class="achievement-broadcast__emoji">${payload.emoji || "🌟"}</div>
+          <div class="achievement-broadcast__copy">
+            <p class="achievement-broadcast__title">${payload.name || "Milestone unlocked"}</p>
+            <p class="achievement-broadcast__meta">${payload.agent || "trexxak"} just raised the ship-wide bar.</p>
+          </div>
+          ${targetUrl ? '<button type="button" class="achievement-broadcast__cta" data-broadcast-link>Witness it</button>' : ""}
+        </div>
+      `;
+      if (targetUrl) {
+        const link = node.querySelector("[data-broadcast-link]");
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          window.location.href = targetUrl;
+        });
+      }
+      container.appendChild(node);
+      requestAnimationFrame(() => node.classList.add("is-visible"));
+      if (Soundboard.enabled) {
+        Soundboard.play("seance");
+      }
+      const lifespan = 7200;
+      setTimeout(() => {
+        node.classList.remove("is-visible");
+        setTimeout(() => node.remove(), 500);
+      }, lifespan);
+    };
+
+    broadcasts.slice(0, 3).forEach((entry, index) => {
+      const delay = index * 5200;
+      setTimeout(() => showBroadcast(entry), delay);
+    });
+  }
+
   function setupThreadAutoUpdates() {
     const stream = document.querySelector("[data-thread-updates]");
     if (!stream) {
@@ -682,6 +735,432 @@ const Soundboard = {
         const added = addEmojiToComposers(symbol, { silent: true });
         showToast(added ? `${symbol} pinned to the dock.` : `${symbol} is already in the dock.`, added ? "success" : "info");
       });
+    });
+  }
+
+  function initMailThreads() {
+    const lists = document.querySelectorAll("[data-mail-thread-list]");
+    if (!lists.length) {
+      return;
+    }
+
+    lists.forEach((list) => {
+      const threads = Array.from(list.querySelectorAll("[data-mail-thread]"));
+      threads.forEach((thread) => {
+        const toggle = thread.querySelector("[data-mail-thread-toggle]");
+        const panel = thread.querySelector("[data-mail-thread-panel]");
+        if (!toggle || !panel) {
+          return;
+        }
+
+        const setExpanded = (expanded) => {
+          panel.hidden = !expanded;
+          thread.classList.toggle("is-open", expanded);
+          toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+        };
+
+        setExpanded(!panel.hidden);
+
+        toggle.addEventListener("click", (event) => {
+          event.preventDefault();
+          const expanded = toggle.getAttribute("aria-expanded") === "true";
+          setExpanded(!expanded);
+        });
+      });
+    });
+  }
+
+  function initDmComposer() {
+    const rawOptions = parseJsonScript("dm-recipient-options");
+    if (!Array.isArray(rawOptions) || rawOptions.length === 0) {
+      return;
+    }
+
+    const normalizeHandle = (value) => {
+      return String(value || "")
+        .trim()
+        .replace(/^@+/, "")
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+    };
+
+    const options = rawOptions
+      .map((item) => {
+        const name = String(item && item.name ? item.name : "").trim();
+        const search = normalizeHandle(name);
+        if (!name || !search) {
+          return null;
+        }
+        const metaParts = [];
+        if (item && item.archetype) {
+          metaParts.push(String(item.archetype));
+        }
+        if (item && item.role) {
+          const role = String(item.role);
+          if (role && role !== "member") {
+            metaParts.push(role.replace(/_/g, " "));
+          }
+        }
+        return {
+          id: item && typeof item.id === "number" ? item.id : Number(item.id),
+          name,
+          search,
+          meta: metaParts.join(" · "),
+        };
+      })
+      .filter((entry) => entry && Number.isFinite(entry.id));
+
+    if (!options.length) {
+      return;
+    }
+
+    const lookup = new Map();
+    options.forEach((option) => {
+      lookup.set(option.search, option);
+    });
+
+    const hideSuggestions = (suggestionBox, input) => {
+      suggestionBox.innerHTML = "";
+      suggestionBox.hidden = true;
+      input.setAttribute("aria-expanded", "false");
+    };
+
+    document.querySelectorAll("[data-dm-composer]").forEach((form) => {
+      if (form.dataset.dmComposerReady === "true") {
+        return;
+      }
+      const field = form.querySelector("[data-dm-recipient-field]");
+      if (!field) {
+        return;
+      }
+
+      const errorNode = form.querySelector("[data-dm-recipient-error]");
+      const fieldName = field.getAttribute("name") || "to";
+      const initialValue = field.value || "";
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "dm-recipient-combobox";
+
+      const chipContainer = document.createElement("div");
+      chipContainer.className = "dm-recipient-chips";
+      chipContainer.setAttribute("role", "list");
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "dm-recipient-input";
+      input.placeholder = field.getAttribute("placeholder") || "Add recipients…";
+      input.setAttribute("autocomplete", "off");
+      input.setAttribute("role", "combobox");
+      input.setAttribute("aria-autocomplete", "list");
+      input.setAttribute("aria-expanded", "false");
+      input.setAttribute("aria-haspopup", "listbox");
+
+      const suggestionBox = document.createElement("div");
+      suggestionBox.className = "dm-recipient-suggestions";
+      suggestionBox.hidden = true;
+      suggestionBox.setAttribute("role", "listbox");
+
+      wrapper.appendChild(chipContainer);
+      wrapper.appendChild(input);
+      wrapper.appendChild(suggestionBox);
+
+      const hidden = document.createElement("input");
+      hidden.type = "hidden";
+      hidden.name = fieldName;
+      form.insertBefore(hidden, field);
+      field.after(wrapper);
+      field.removeAttribute("name");
+      field.value = "";
+      field.hidden = true;
+      field.disabled = true;
+
+      form.dataset.dmComposerReady = "true";
+
+      const selected = [];
+      const selectedIds = new Set();
+      let matches = [];
+      let activeIndex = -1;
+
+      const clearError = () => {
+        if (errorNode) {
+          errorNode.textContent = "";
+          errorNode.hidden = true;
+        }
+        wrapper.classList.remove("has-error");
+      };
+
+      const showError = (message) => {
+        if (!errorNode) {
+          return;
+        }
+        errorNode.textContent = message || "";
+        errorNode.hidden = !message;
+        wrapper.classList.toggle("has-error", Boolean(message));
+      };
+
+      const updateHidden = () => {
+        hidden.value = selected.map((option) => option.name).join(", ");
+      };
+
+      const removeRecipient = (id) => {
+        const index = selected.findIndex((option) => option.id === id);
+        if (index === -1) {
+          return;
+        }
+        selected.splice(index, 1);
+        selectedIds.delete(id);
+        const chip = chipContainer.querySelector(`[data-id="${id}"]`);
+        if (chip) {
+          chip.remove();
+        }
+        updateHidden();
+      };
+
+      const addRecipient = (option, { silent = false } = {}) => {
+        if (!option || selectedIds.has(option.id)) {
+          return false;
+        }
+        selected.push(option);
+        selectedIds.add(option.id);
+
+        const chip = document.createElement("span");
+        chip.className = "dm-recipient-chip";
+        chip.dataset.id = String(option.id);
+
+        const label = document.createElement("span");
+        label.textContent = `@${option.name}`;
+        chip.appendChild(label);
+
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.setAttribute("aria-label", `Remove ${option.name}`);
+        removeButton.innerHTML = "&times;";
+        removeButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          removeRecipient(option.id);
+          input.focus();
+        });
+        chip.appendChild(removeButton);
+
+        chipContainer.appendChild(chip);
+        updateHidden();
+        if (!silent) {
+          clearError();
+        }
+        return true;
+      };
+
+      const setActiveIndex = (index) => {
+        activeIndex = index;
+        const nodes = suggestionBox.querySelectorAll(".dm-recipient-suggestion");
+        nodes.forEach((node, idx) => {
+          if (idx === activeIndex) {
+            node.classList.add("is-active");
+            node.setAttribute("aria-selected", "true");
+          } else {
+            node.classList.remove("is-active");
+            node.setAttribute("aria-selected", "false");
+          }
+        });
+      };
+
+      const renderSuggestions = (term) => {
+        const query = normalizeHandle(term);
+        matches = options
+          .filter((option) => {
+            if (selectedIds.has(option.id)) {
+              return false;
+            }
+            if (!query) {
+              return true;
+            }
+            return option.search.includes(query);
+          })
+          .slice(0, 8);
+
+        suggestionBox.innerHTML = "";
+        if (!matches.length) {
+          hideSuggestions(suggestionBox, input);
+          activeIndex = -1;
+          return;
+        }
+
+        matches.forEach((option, index) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "dm-recipient-suggestion";
+          button.dataset.id = String(option.id);
+          button.setAttribute("role", "option");
+          button.innerHTML = `<span>@${escapeHtml(option.name)}</span>`;
+          if (option.meta) {
+            button.innerHTML += `<span class="dm-recipient-meta">${escapeHtml(option.meta)}</span>`;
+          }
+          button.addEventListener("click", (event) => {
+            event.preventDefault();
+            addRecipient(option);
+            input.value = "";
+            hideSuggestions(suggestionBox, input);
+            input.focus();
+          });
+          suggestionBox.appendChild(button);
+          if (index === 0) {
+            button.classList.add("is-active");
+            button.setAttribute("aria-selected", "true");
+            activeIndex = 0;
+          }
+        });
+
+        suggestionBox.hidden = false;
+        input.setAttribute("aria-expanded", "true");
+      };
+
+      const commitMatches = (text, { allowPartial = false } = {}) => {
+        const raw = String(text || "");
+        const segments = raw
+          .split(",")
+          .map((segment) => segment.trim())
+          .filter((segment) => segment);
+
+        if (!segments.length) {
+          return true;
+        }
+
+        let ok = true;
+        segments.forEach((segment) => {
+          if (!ok) {
+            return;
+          }
+          const normalized = normalizeHandle(segment);
+          let option = lookup.get(normalized);
+          if (!option) {
+            option = matches.find((candidate) => candidate.search.startsWith(normalized));
+          }
+          if (!option) {
+            option = options.find(
+              (candidate) => !selectedIds.has(candidate.id) && candidate.search.startsWith(normalized),
+            );
+          }
+          if (option) {
+            addRecipient(option);
+          } else if (!allowPartial) {
+            ok = false;
+            showError(`No ghost registered as ${segment}.`);
+          }
+        });
+
+        if (ok) {
+          input.value = "";
+          renderSuggestions("");
+          clearError();
+        }
+
+        return ok;
+      };
+
+      input.addEventListener("input", () => {
+        clearError();
+        renderSuggestions(input.value);
+      });
+
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown") {
+          if (matches.length) {
+            event.preventDefault();
+            const next = activeIndex + 1 >= matches.length ? 0 : activeIndex + 1;
+            setActiveIndex(next);
+          }
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          if (matches.length) {
+            event.preventDefault();
+            const next = activeIndex - 1 < 0 ? matches.length - 1 : activeIndex - 1;
+            setActiveIndex(next);
+          }
+          return;
+        }
+        if (event.key === "Enter") {
+          if (matches.length && activeIndex >= 0 && matches[activeIndex]) {
+            event.preventDefault();
+            addRecipient(matches[activeIndex]);
+            input.value = "";
+            hideSuggestions(suggestionBox, input);
+            return;
+          }
+          if (input.value.trim()) {
+            if (!commitMatches(input.value)) {
+              event.preventDefault();
+            } else {
+              event.preventDefault();
+            }
+          }
+          return;
+        }
+        if (event.key === "," || event.key === "Tab") {
+          if (matches.length && activeIndex >= 0 && matches[activeIndex]) {
+            event.preventDefault();
+            addRecipient(matches[activeIndex]);
+            input.value = "";
+            hideSuggestions(suggestionBox, input);
+            return;
+          }
+          if (input.value.trim()) {
+            if (!commitMatches(input.value, { allowPartial: event.key === "Tab" })) {
+              event.preventDefault();
+            } else {
+              event.preventDefault();
+            }
+          }
+          return;
+        }
+        if (event.key === "Backspace" && !input.value) {
+          const last = selected[selected.length - 1];
+          if (last) {
+            removeRecipient(last.id);
+          }
+          return;
+        }
+        if (event.key === "Escape") {
+          hideSuggestions(suggestionBox, input);
+          clearError();
+        }
+      });
+
+      input.addEventListener("focus", () => {
+        renderSuggestions(input.value);
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!wrapper.contains(event.target)) {
+          hideSuggestions(suggestionBox, input);
+        }
+      });
+
+      form.addEventListener("submit", (event) => {
+        clearError();
+        if (input.value && !commitMatches(input.value)) {
+          event.preventDefault();
+          input.focus();
+          return;
+        }
+        if (!selected.length) {
+          showError("Add at least one recipient.");
+          event.preventDefault();
+          input.focus();
+        }
+      });
+
+      if (initialValue) {
+        const bootstrapSegments = initialValue.split(",");
+        bootstrapSegments.forEach((segment) => {
+          const normalized = normalizeHandle(segment);
+          const option = lookup.get(normalized);
+          if (option) {
+            addRecipient(option, { silent: true });
+          }
+        });
+        updateHidden();
+      }
     });
   }
 
@@ -1207,12 +1686,19 @@ const Soundboard = {
     initNotifications();
     renderAchievementToasts();
     renderAchievementTicker();
+    renderAchievementBroadcasts();
+    const metricsDelta = parseJsonScript("progress-metrics-delta");
+    if (metricsDelta && !Array.isArray(metricsDelta) && Object.keys(metricsDelta).length > 0) {
+      window.dispatchEvent(new CustomEvent("metrics:update", { detail: metricsDelta }));
+    }
     initCollapseControls();
     initPaginationControls();
     initScrollLinks();
     initModals();
     initComposers();
     initEmojiPins();
+    initMailThreads();
+    initDmComposer();
     initSelectSearch();
   });
 })();

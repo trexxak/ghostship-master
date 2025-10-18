@@ -44,7 +44,12 @@ def ui_mode(request: HttpRequest) -> dict[str, object]:
 
 def progress_notifications(request: HttpRequest) -> dict[str, object]:
     if not hasattr(request, "session"):
-        return {"progress_toasts": [], "progress_ticker": []}
+        return {
+            "progress_toasts": [],
+            "progress_ticker": [],
+            "progress_metrics_delta": {},
+            "progress_broadcasts": [],
+        }
     session = request.session
     session_key = session.session_key
     if not session_key:
@@ -53,6 +58,19 @@ def progress_notifications(request: HttpRequest) -> dict[str, object]:
 
     now = timezone.now()
     toast_seen_ids = set(session.get("progress_toasts_seen", []))
+    metrics_delta_raw = session.pop("progress_metrics_delta", None)
+    if metrics_delta_raw is not None:
+        session.modified = True
+    metrics_delta: dict[str, int] = {}
+    if isinstance(metrics_delta_raw, dict):
+        for key in ("threads", "replies", "reports"):
+            value = metrics_delta_raw.get(key)
+            try:
+                numeric = int(value)
+            except (TypeError, ValueError):
+                continue
+            if numeric:
+                metrics_delta[key] = numeric
     toasts: list[dict[str, object]] = []
     if session_key:
         progression_toasts = (
@@ -113,7 +131,44 @@ def progress_notifications(request: HttpRequest) -> dict[str, object]:
     if ticker:
         session["progress_ticker_seen"] = list(ticker_seen)
         session.modified = True
+
+    broadcast_window = now - timedelta(minutes=10)
+    broadcast_seen = set(session.get("progress_broadcast_seen", []))
+    broadcast_records = (
+        AgentGoal.objects.filter(
+            unlocked_at__gte=broadcast_window,
+            goal__goal_type__in=[Goal.TYPE_PROGRESS, Goal.TYPE_BADGE],
+        )
+        .select_related("goal", "agent")
+        .order_by("-unlocked_at")[:6]
+    )
+    broadcasts: list[dict[str, object]] = []
+    for record in broadcast_records:
+        if record.id in broadcast_seen:
+            continue
+        goal = record.goal
+        metadata = record.metadata or {}
+        broadcasts.append(
+            {
+                "slug": goal.slug,
+                "name": goal.name,
+                "emoji": goal.emoji or goal.icon_slug or "🌟",
+                "agent": record.agent.name if record.agent else "unknown",
+                "unlocked_at": record.unlocked_at,
+                "thread_id": metadata.get("thread_id"),
+                "post_id": metadata.get("post_id"),
+            }
+        )
+        broadcast_seen.add(record.id)
+        if len(broadcasts) >= 3:
+            break
+    if broadcasts:
+        session["progress_broadcast_seen"] = list(broadcast_seen)
+        session.modified = True
+
     return {
         "progress_toasts": toasts,
         "progress_ticker": ticker,
+        "progress_metrics_delta": metrics_delta,
+        "progress_broadcasts": broadcasts,
     }

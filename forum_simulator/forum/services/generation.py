@@ -541,6 +541,9 @@ def _build_prompt(task: GenerationTask) -> str:
             context.append(
                 "Mention only if you are directly responding to that ghost—otherwise let the update stand without a tag."
             )
+            context.append(
+                "Only mention ghosts listed above and anchor any tag to the cited detail; do not invent handles or tag yourself unless directly summoned."
+            )
         else:
             context.append(
                 "You are not obligated to tag anyone here; share the update in your own voice unless a direct reply is needed."

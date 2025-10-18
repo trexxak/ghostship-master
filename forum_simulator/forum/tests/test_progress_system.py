@@ -29,6 +29,11 @@ class ProgressCatalogTests(TestCase):
         self.assertEqual(len(set(priorities)), len(priorities))
         self.assertTrue(Goal.objects.filter(slug="progress-spark").exists())
 
+    def test_emoji_palette_includes_fifty_unique_symbols(self) -> None:
+        palette = progress_service.emoji_palette()
+        self.assertEqual(len(palette), 50)
+        self.assertEqual(len(set(palette)), 50)
+
 
 class ProgressNotificationTests(TestCase):
     def setUp(self) -> None:
@@ -73,6 +78,32 @@ class ProgressNotificationTests(TestCase):
         )
         context = progress_notifications(request)
         self.assertEqual(len(context["progress_ticker"]), 1)
+
+    def test_metrics_delta_consumed_from_session(self) -> None:
+        request = self._request()
+        request.session["progress_metrics_delta"] = {"threads": 2, "replies": 1, "reports": 0}
+        request.session.modified = True
+        context = progress_notifications(request)
+        self.assertEqual(context["progress_metrics_delta"], {"threads": 2, "replies": 1})
+        self.assertNotIn("progress_metrics_delta", request.session)
+        repeat = progress_notifications(request)
+        self.assertEqual(repeat["progress_metrics_delta"], {})
+
+    def test_broadcasts_include_recent_unlocks(self) -> None:
+        request = self._request()
+        goal = Goal.objects.get(slug="progress-spark")
+        AgentGoal.objects.create(
+            agent=self.organism,
+            goal=goal,
+            progress=1.0,
+            unlocked_at=timezone.now(),
+            metadata={"trigger_session_key": request.session.session_key},
+        )
+        context = progress_notifications(request)
+        self.assertEqual(len(context["progress_broadcasts"]), 1)
+        self.assertEqual(context["progress_broadcasts"][0]["slug"], "progress-spark")
+        follow_up = progress_notifications(request)
+        self.assertEqual(follow_up["progress_broadcasts"], [])
 
 
 class ProgressRefereeTests(TestCase):

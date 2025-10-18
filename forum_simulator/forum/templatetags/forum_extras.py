@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote_plus
+from xml.etree.ElementTree import Element, tostring
 
 from django import template
 from django.conf import settings
@@ -123,6 +124,25 @@ _MENTION_PATTERN = re.compile(
     r"\[(?P<bracket>[A-Za-z0-9_.-]{2,})\]|@(?P<at>[A-Za-z0-9_.-]{2,})")
 
 
+def _build_mention_element(name: str) -> tuple[Element | None, str]:
+    clean = (name or "").strip()
+    if not clean:
+        return None, ""
+    agent = _resolve_agent(clean)
+    label = agent.name if agent else clean
+    display = f"@{label}"
+    if agent:
+        element = Element("a")
+        element.set("class", f"mention ghost-handle role-{agent.role}")
+        element.set("href", reverse("forum:agent_detail", args=[agent.pk]))
+        element.set("data-handle", agent.name.lower())
+        element.set("data-handle-display", label)
+        element.set("rel", "nofollow")
+        element.text = display
+        return element, display
+    return None, display
+
+
 def _normalize_tripcode_length(length: Any) -> int:
     try:
         length_int = int(length)
@@ -154,25 +174,26 @@ def _resolve_agent(name: str) -> Agent | None:
 
 
 def _render_mentions_markup(value: Any) -> str:
-    text = escape("" if value is None else str(value))
-    def _replace(match: re.Match[str]) -> str:
-        name = match.group("bracket") or match.group("at") or ""
-        clean = name.strip()
-        if not clean:
-            return match.group(0)
-        agent = _resolve_agent(clean)
-        label = escape(clean)
-        if agent:
-            url = reverse("forum:agent_detail", args=[agent.pk])
-            handle_data = escape(agent.name.lower())
-            return (
-                f'<a class="mention ghost-handle role-{agent.role}" '
-                f'href="{url}" data-handle="{handle_data}" data-handle-display="{label}">@{label}</a>'
-            )
-        # Leave unknown handles as plain text (@label) rather than linking to a search
-        return f'@{label}'
+    raw_text = "" if value is None else str(value)
+    if not raw_text:
+        return ""
 
-    return _MENTION_PATTERN.sub(_replace, text)
+    parts: list[str] = []
+    last_index = 0
+    for match in _MENTION_PATTERN.finditer(raw_text):
+        start, end = match.span()
+        if start > last_index:
+            parts.append(escape(raw_text[last_index:start]))
+        name = match.group("bracket") or match.group("at") or ""
+        element, fallback = _build_mention_element(name)
+        if element is not None:
+            parts.append(tostring(element, encoding="unicode", method="html"))
+        else:
+            parts.append(escape(fallback))
+        last_index = end
+    if last_index < len(raw_text):
+        parts.append(escape(raw_text[last_index:]))
+    return "".join(parts)
 
 
 @register.filter(name="render_mentions")
@@ -180,53 +201,157 @@ def render_mentions(value: Any) -> str:
     return mark_safe(_render_mentions_markup(value))
 
 
+def _render_inline_markup(text: str) -> str:
+    def _render_segment(segment: str) -> str:
+        result: list[str] = []
+        index = 0
+        length = len(segment)
+        while index < length:
+            char = segment[index]
+            if char == "\n":
+                result.append("<br>")
+                index += 1
+                continue
+            if segment.startswith("**", index):
+                close = segment.find("**", index + 2)
+                if close != -1:
+                    before = segment[index - 1] if index > 0 else " "
+                    after = segment[close + 2] if close + 2 < length else " "
+                    if (before.isspace() or before in "([{'\"") and (after.isspace() or after in ")]}'\"',.!?:;"):
+                        inner = _render_segment(segment[index + 2 : close])
+                        result.append(f"<strong>{inner}</strong>")
+                        index = close + 2
+                        continue
+                result.append(escape("*"))
+                index += 1
+                continue
+            if char == "_":
+                close = segment.find("_", index + 1)
+                if close != -1 and close > index + 1:
+                    before = segment[index - 1] if index > 0 else " "
+                    after = segment[close + 1] if close + 1 < length else " "
+                    if (before.isspace() or before in "([{'\"") and (after.isspace() or after in ")]}'\"',.!?:;"):
+                        inner = _render_segment(segment[index + 1 : close])
+                        result.append(f"<em>{inner}</em>")
+                        index = close + 1
+                        continue
+                result.append(escape("_"))
+                index += 1
+                continue
+            if char == "`":
+                close = segment.find("`", index + 1)
+                if close != -1:
+                    code_text = segment[index + 1 : close]
+                    result.append(f"<code>{escape(code_text)}</code>")
+                    index = close + 1
+                    continue
+                result.append(escape("`"))
+                index += 1
+                continue
+            if char in {"@", "["}:
+                match = _MENTION_PATTERN.match(segment, index)
+                if match:
+                    name = match.group("bracket") or match.group("at") or ""
+                    element, fallback = _build_mention_element(name)
+                    if element is not None:
+                        result.append(tostring(element, encoding="unicode", method="html"))
+                    else:
+                        result.append(escape(fallback))
+                    index = match.end()
+                    continue
+            result.append(escape(char))
+            index += 1
+        return "".join(result)
+
+    return _render_segment(text or "")
+
+
 @register.filter(name="format_post")
 def format_post(value: Any) -> str:
     if value is None:
         return ""
 
-    lines = str(value).splitlines()
-    blocks: list[tuple[str, list[str]]] = []
-    paragraph: list[str] = []
-    quote: list[str] = []
-
-    def flush_paragraph() -> None:
-        nonlocal paragraph
-        if paragraph:
-            blocks.append(("paragraph", paragraph))
-            paragraph = []
-
-    def flush_quote() -> None:
-        nonlocal quote
-        if quote:
-            blocks.append(("quote", quote))
-            quote = []
-
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith(">"):
-            flush_paragraph()
-            quote.append(line.split(">", 1)[1].lstrip() if ">" in line else "")
-        else:
-            if stripped == "":
-                flush_quote()
-                flush_paragraph()
-            else:
-                flush_quote()
-                paragraph.append(line)
-
-    flush_quote()
-    flush_paragraph()
-
+    text = str(value)
+    lines = text.splitlines()
     html_parts: list[str] = []
-    for kind, content_lines in blocks:
-        text_chunk = "\n".join(content_lines)
-        markup = _render_mentions_markup(text_chunk)
-        markup = markup.replace("\n", "<br>")
-        if kind == "quote":
-            html_parts.append(f'<blockquote class="post-quote">{markup}</blockquote>')
-        else:
-            html_parts.append(f'<p>{markup or "<br>"}' + "</p>")
+    total_lines = len(lines)
+    pointer = 0
+
+    def _consume_blank(idx: int) -> int:
+        while idx < total_lines and not lines[idx].strip():
+            idx += 1
+        return idx
+
+    pointer = _consume_blank(pointer)
+    while pointer < total_lines:
+        line = lines[pointer]
+        stripped = line.strip()
+
+        if stripped.startswith("```"):
+            language = stripped[3:].strip()
+            pointer += 1
+            code_lines: list[str] = []
+            while pointer < total_lines:
+                current = lines[pointer]
+                if current.strip().startswith("```"):
+                    pointer += 1
+                    break
+                code_lines.append(current)
+                pointer += 1
+            lang_attr = f' class="language-{escape(language)}"' if language else ""
+            code_html = escape("\n".join(code_lines))
+            html_parts.append(f"<pre><code{lang_attr}>{code_html}</code></pre>")
+            pointer = _consume_blank(pointer)
+            continue
+
+        if stripped.startswith(">"):
+            quote_lines: list[str] = []
+            while pointer < total_lines:
+                current = lines[pointer]
+                current_stripped = current.strip()
+                if current_stripped.startswith(">"):
+                    quote_lines.append(current_stripped[1:].lstrip())
+                    pointer += 1
+                    continue
+                break
+            quote_text = "\n".join(quote_lines)
+            html_parts.append(f"<blockquote>{_render_inline_markup(quote_text)}</blockquote>")
+            pointer = _consume_blank(pointer)
+            continue
+
+        if stripped.startswith("- "):
+            items: list[str] = []
+            while pointer < total_lines:
+                current = lines[pointer]
+                current_stripped = current.strip()
+                if current_stripped.startswith("- "):
+                    items.append(current_stripped[2:])
+                    pointer += 1
+                    continue
+                break
+            if items:
+                item_html = "".join(f"<li>{_render_inline_markup(item)}</li>" for item in items)
+                html_parts.append(f"<ul>{item_html}</ul>")
+            pointer = _consume_blank(pointer)
+            continue
+
+        paragraph_lines: list[str] = []
+        while pointer < total_lines:
+            current = lines[pointer]
+            current_stripped = current.strip()
+            if not current_stripped:
+                pointer += 1
+                break
+            if current_stripped.startswith(("```", ">", "- ")):
+                break
+            paragraph_lines.append(current)
+            pointer += 1
+        paragraph_text = "\n".join(paragraph_lines)
+        html_parts.append(f"<p>{_render_inline_markup(paragraph_text)}</p>")
+        pointer = _consume_blank(pointer)
+
+    if not html_parts:
+        return ""
 
     return mark_safe("".join(html_parts))
 

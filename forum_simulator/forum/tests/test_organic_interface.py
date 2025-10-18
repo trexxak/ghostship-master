@@ -186,6 +186,86 @@ class OrganicInterfaceTests(TestCase):
         self.assertTrue(dm.authored_by_operator)
         self.assertEqual(dm.content, "Operator ping delivered via control panel.")
 
+    def test_control_panel_compose_supports_multiple_recipients(self) -> None:
+        self._activate_organic()
+
+        extra = Agent.objects.create(
+            name="glimmer",
+            archetype="navigator",
+            role=Agent.ROLE_MEMBER,
+        )
+
+        compose_url = reverse("forum:oi_control_panel")
+        message_body = "Coordinated briefing sent to allies."
+        response = self.client.post(
+            compose_url,
+            {
+                "compose_pm": "1",
+                "to": f"{self.member.name}, {extra.name}",
+                "subject": "Joint ping",
+                "body": message_body,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        created = PrivateMessage.objects.filter(content=message_body).order_by("recipient__name")
+        self.assertEqual(created.count(), 2)
+        self.assertSetEqual(
+            {pm.recipient.name for pm in created},
+            {self.member.name, extra.name},
+        )
+
+    def test_control_panel_groups_messages_into_threads(self) -> None:
+        self._activate_organic()
+
+        partner_two = Agent.objects.create(
+            name="wayfarer",
+            archetype="scout",
+            role=Agent.ROLE_MEMBER,
+        )
+
+        now = timezone.now()
+        first = PrivateMessage.objects.create(
+            sender=self.member,
+            recipient=self.organism,
+            content="Specter inbound report.",
+        )
+        second = PrivateMessage.objects.create(
+            sender=self.organism,
+            recipient=self.member,
+            content="Acknowledged, adjusting route.",
+        )
+        third = PrivateMessage.objects.create(
+            sender=partner_two,
+            recipient=self.organism,
+            content="Waypoint cleared.",
+        )
+        PrivateMessage.objects.filter(pk=third.pk).update(sent_at=now - timedelta(minutes=3))
+        PrivateMessage.objects.filter(pk=first.pk).update(sent_at=now - timedelta(minutes=2))
+        PrivateMessage.objects.filter(pk=second.pk).update(sent_at=now - timedelta(minutes=1))
+
+        response = self.client.get(reverse("forum:oi_control_panel"))
+        self.assertEqual(response.status_code, 200)
+
+        inbox_threads = response.context["inbox_page_obj"].object_list
+        outbox_threads = response.context["outbox_page_obj"].object_list
+
+        self.assertEqual(response.context["dm_thread_count"], 2)
+        self.assertEqual(len(inbox_threads), 2)
+        self.assertEqual(len(outbox_threads), 1)
+
+        specter_thread = next(thread for thread in inbox_threads if thread["partner"].id == self.member.id)
+        self.assertEqual(specter_thread["incoming_total"], 1)
+        self.assertEqual(specter_thread["outgoing_total"], 1)
+        self.assertEqual(specter_thread["message_count"], 2)
+        self.assertEqual(
+            [entry["direction"] for entry in specter_thread["messages"]],
+            ["incoming", "outgoing"],
+        )
+
+        options = response.context["dm_recipient_options"]
+        self.assertTrue(any(option["name"] == partner_two.name for option in options))
+
 
 class CoreStabilityTests(TestCase):
     @classmethod

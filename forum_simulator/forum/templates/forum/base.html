@@ -37,9 +37,12 @@
     <button type="button" class="ticker-close" data-ticker-dismiss aria-label="Dismiss ticker">×</button>
     <div class="ticker-items" data-ticker-items></div>
   </div>
+  <div class="achievement-broadcast-stack" data-broadcast-container></div>
 
   {{ progress_toasts|json_script:"progress-toasts-data" }}
   {{ progress_ticker|json_script:"progress-ticker-data" }}
+  {{ progress_broadcasts|json_script:"progress-broadcasts-data" }}
+  {{ progress_metrics_delta|json_script:"progress-metrics-delta" }}
 
   <header class="masthead">
     <div class="masthead-banner">

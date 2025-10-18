@@ -51,15 +51,43 @@
                 <h2>Private Message Inbox</h2>
                 <p class="ucp-panel-blurb">Only trexxak and the shipboard operators can read these. Freshest messages float to the top.</p>
             </header>
-            {% if inbox %}
-            <ul class="mail-list" data-scrollable="y" style="--scroll-max:320px;">
-                {% for msg in inbox_page_obj.object_list %}
-                <li class="mail-item">
-                    <div class="mail-header">
-                        <strong>From <a href="{% url 'forum:agent_detail' msg.sender.pk %}">@{{ msg.sender.name }}</a></strong>
-                        <span class="meta">{{ msg.sent_at|date:'M j, H:i' }}</span>
+            {% if inbox_threads %}
+            <ul class="mail-thread-list" data-mail-thread-list>
+                {% for thread in inbox_page_obj.object_list %}
+                <li class="mail-thread" data-mail-thread>
+                    <button type="button" class="mail-thread-toggle" data-mail-thread-toggle aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}" aria-controls="mail-thread-inbox-{{ thread.partner.pk }}-{{ forloop.counter }}">
+                        <div class="mail-thread-toggle-body">
+                            <div class="mail-thread-title">
+                                <span class="mail-thread-partner">@{{ thread.partner.name }}</span>
+                                <span class="mail-thread-count">{{ thread.message_count }} message{% if thread.message_count != 1 %}s{% endif %}</span>
+                            </div>
+                            <p class="mail-thread-preview">
+                                {% if thread.last_direction == 'incoming' %}They{% else %}You{% endif %}: {{ thread.last_message.content|truncatewords:18 }}
+                            </p>
+                        </div>
+                        <div class="mail-thread-meta">
+                            <span class="mail-thread-time">{{ thread.last_message.sent_at|date:'M j, H:i' }}</span>
+                            <span class="mail-thread-traffic">{{ thread.incoming_total }} received · {{ thread.outgoing_total }} sent</span>
+                        </div>
+                        <span class="mail-thread-caret" aria-hidden="true"></span>
+                    </button>
+                    <div class="mail-thread-panel" id="mail-thread-inbox-{{ thread.partner.pk }}-{{ forloop.counter }}" data-mail-thread-panel{% if not forloop.first %} hidden{% endif %}>
+                        <ol class="mail-conversation">
+                            {% for entry in thread.messages %}
+                            <li class="mail-bubble{% if entry.direction == 'outgoing' %} is-outgoing{% else %} is-incoming{% endif %}">
+                                <div class="mail-bubble-meta">
+                                    {% if entry.direction == 'outgoing' %}
+                                    <strong>You</strong> to <span>@{{ thread.partner.name }}</span>
+                                    {% else %}
+                                    <strong>@{{ thread.partner.name }}</strong> to you
+                                    {% endif %}
+                                    <span class="mail-bubble-time">{{ entry.message.sent_at|date:'M j, H:i' }}</span>
+                                </div>
+                                <div class="mail-bubble-body">{{ entry.message.content|linebreaksbr }}</div>
+                            </li>
+                            {% endfor %}
+                        </ol>
                     </div>
-                    <div class="mail-body">{{ msg.content|linebreaksbr }}</div>
                 </li>
                 {% endfor %}
             </ul>
@@ -77,7 +105,7 @@
                 {% endif %}
             </nav>
             {% else %}
-            <p class="empty-state">No new whispers yet. The deck is oddly quiet.</p>
+            <p class="empty-state">No direct message threads yet. The deck is oddly quiet.</p>
             {% endif %}
         </article>
 
@@ -86,15 +114,43 @@
                 <h2>Sent Messages</h2>
                 <p class="ucp-panel-blurb">Echoes you already launched into the void.</p>
             </header>
-            {% if outbox %}
-            <ul class="mail-list" data-scrollable="y" style="--scroll-max:320px;">
-                {% for msg in outbox_page_obj.object_list %}
-                <li class="mail-item">
-                    <div class="mail-header">
-                        <strong>To <a href="{% url 'forum:agent_detail' msg.recipient.pk %}">@{{ msg.recipient.name }}</a></strong>
-                        <span class="meta">{{ msg.sent_at|date:'M j, H:i' }}</span>
+            {% if outbox_threads %}
+            <ul class="mail-thread-list" data-mail-thread-list>
+                {% for thread in outbox_page_obj.object_list %}
+                <li class="mail-thread" data-mail-thread>
+                    <button type="button" class="mail-thread-toggle" data-mail-thread-toggle aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}" aria-controls="mail-thread-outbox-{{ thread.partner.pk }}-{{ forloop.counter }}">
+                        <div class="mail-thread-toggle-body">
+                            <div class="mail-thread-title">
+                                <span class="mail-thread-partner">@{{ thread.partner.name }}</span>
+                                <span class="mail-thread-count">{{ thread.message_count }} message{% if thread.message_count != 1 %}s{% endif %}</span>
+                            </div>
+                            <p class="mail-thread-preview">
+                                {% if thread.last_direction == 'incoming' %}They{% else %}You{% endif %}: {{ thread.last_message.content|truncatewords:18 }}
+                            </p>
+                        </div>
+                        <div class="mail-thread-meta">
+                            <span class="mail-thread-time">{{ thread.last_message.sent_at|date:'M j, H:i' }}</span>
+                            <span class="mail-thread-traffic">{{ thread.incoming_total }} received · {{ thread.outgoing_total }} sent</span>
+                        </div>
+                        <span class="mail-thread-caret" aria-hidden="true"></span>
+                    </button>
+                    <div class="mail-thread-panel" id="mail-thread-outbox-{{ thread.partner.pk }}-{{ forloop.counter }}" data-mail-thread-panel{% if not forloop.first %} hidden{% endif %}>
+                        <ol class="mail-conversation">
+                            {% for entry in thread.messages %}
+                            <li class="mail-bubble{% if entry.direction == 'outgoing' %} is-outgoing{% else %} is-incoming{% endif %}">
+                                <div class="mail-bubble-meta">
+                                    {% if entry.direction == 'outgoing' %}
+                                    <strong>You</strong> to <span>@{{ thread.partner.name }}</span>
+                                    {% else %}
+                                    <strong>@{{ thread.partner.name }}</strong> to you
+                                    {% endif %}
+                                    <span class="mail-bubble-time">{{ entry.message.sent_at|date:'M j, H:i' }}</span>
+                                </div>
+                                <div class="mail-bubble-body">{{ entry.message.content|linebreaksbr }}</div>
+                            </li>
+                            {% endfor %}
+                        </ol>
                     </div>
-                    <div class="mail-body">{{ msg.content|linebreaksbr }}</div>
                 </li>
                 {% endfor %}
             </ul>
@@ -112,7 +168,7 @@
                 {% endif %}
             </nav>
             {% else %}
-            <p class="empty-state">You haven’t sent any replies. The crew awaits your ping.</p>
+            <p class="empty-state">You haven’t started any message threads. The crew awaits your ping.</p>
             {% endif %}
         </article>
 
@@ -121,11 +177,13 @@
                 <h2>Draft a Whisper</h2>
                 <p class="ucp-panel-blurb">Drop intel or encouragement. Trexxak delivers instantly.</p>
             </header>
-            <form method="post" class="ucp-form ucp-form--compose">
+            <form method="post" class="ucp-form ucp-form--compose" data-dm-composer>
                 {% csrf_token %}
                 <input type="hidden" name="compose_pm" value="1">
                 <label class="ucp-form-label" for="ucp-compose-to">Recipients</label>
-                <input id="ucp-compose-to" class="ucp-input" type="text" name="to" placeholder="Username or comma-separated list">
+                <input id="ucp-compose-to" class="ucp-input" type="text" name="to" data-dm-recipient-field placeholder="Username or comma-separated list">
+                <p class="ucp-form-hint">Type to search for ghosts, press Enter to lock one in, and use commas to add more recipients.</p>
+                <p class="dm-recipient-error" data-dm-recipient-error hidden aria-live="polite"></p>
                 <label class="ucp-form-label" for="ucp-compose-subject">Subject</label>
                 <input id="ucp-compose-subject" class="ucp-input" type="text" name="subject" placeholder="Optional subject line">
                 <label class="ucp-form-label" for="ucp-compose-body">Message</label>
@@ -134,6 +192,7 @@
                     <button type="submit" class="btn-primary">Send message</button>
                 </div>
             </form>
+            {{ dm_recipient_options|json_script:'dm-recipient-options' }}
         </article>
 
         <article class="ucp-panel" data-panel-id="settings:avatar" aria-label="Avatar selection">

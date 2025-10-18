@@ -232,6 +232,7 @@ class PrivateMessage(models.Model):
     sender = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="sent_messages")
     recipient = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="received_messages")
     content = models.TextField()
+    subject = models.CharField(max_length=120, blank=True)
     sent_at = models.DateTimeField(auto_now_add=True)
     tick_number = models.PositiveIntegerField(null=True, blank=True, db_index=True)
     tone = models.FloatField(default=0.0)

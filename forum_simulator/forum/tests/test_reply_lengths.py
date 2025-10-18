@@ -80,6 +80,19 @@ class LengthInstructionIntegrationTests(TestCase):
         prompt = generation_service._build_prompt(task)
         self.assertIn("Aim for roughly", prompt)
 
+    def test_prompt_includes_persona_examples(self) -> None:
+        agent = Agent.objects.create(name="PalmVigil", archetype="Sentinel")
+        board = Board.objects.create(name="Ops", slug="ops")
+        thread = Thread.objects.create(title="Checklist", author=agent, board=board)
+        task = generation_service.enqueue_generation_task(
+            task_type=generation_service.GenerationTask.TYPE_REPLY,
+            agent=agent,
+            thread=thread,
+        )
+        prompt = generation_service._build_prompt(task)
+        self.assertIn("Persona snapshots", prompt)
+        self.assertIn("log(tick 1412)", prompt)
+
 
 class PromptContextTimelineTests(TestCase):
     def setUp(self) -> None:

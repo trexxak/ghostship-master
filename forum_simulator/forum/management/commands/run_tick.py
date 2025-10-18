@@ -85,6 +85,34 @@ FALLBACK_TOPIC_SUGGESTIONS: list[list[str]] = [
     ["feature", "request"],
 ]
 
+MAX_UNANSWERED_DM_STREAK = 3
+
+
+def unanswered_dm_streak(
+    sender: Agent | None,
+    recipient: Agent | None,
+    *,
+    limit: int = MAX_UNANSWERED_DM_STREAK,
+) -> int:
+    if not sender or not recipient or limit <= 0:
+        return 0
+    conversation = (
+        PrivateMessage.objects.filter(
+            models.Q(sender=sender, recipient=recipient)
+            | models.Q(sender=recipient, recipient=sender)
+        )
+        .order_by("-sent_at")[: limit + 1]
+    )
+    streak = 0
+    for message in conversation:
+        if message.sender_id == sender.id:
+            streak += 1
+            if streak >= limit:
+                break
+        else:
+            break
+    return streak
+
 GENERAL_TOPIC_BLUEPRINTS: dict[str, dict[str, object]] = {
     "games": {
         "aliases": {"game", "games", "gaming", "speedrun"},
@@ -385,8 +413,8 @@ PEER_DM_SCENARIOS = [
     {
         "label": "stealth_fix",
         "needs_thread": True,
-        "instruction": "Ping {recipient} to coordinate a stealth fix for '{thread_title}'. Outline how you'll divide tasks and cover the admin fallout.",
-        "style_notes": "Playful scheming; reference at least one digital tool or macro you're about to abuse.",
+        "instruction": "Ping {recipient} to coordinate a quiet fix for '{thread_title}'. Outline a clear plan with who does what and invite them to confirm before you move.",
+        "style_notes": "Keep it collaborative and concrete; focus on the actual steps and reassure them you're keeping things tidy.",
         "max_tokens": 150,
     },
     {
@@ -550,6 +578,11 @@ class Command(BaseCommand):
                 topic=topic_label,
             )
             style_notes = scenario.get("style_notes", "")
+            if style_notes:
+                style_notes = style_notes.strip() + " "
+            style_notes += (
+                "Keep the language plain and on-topic—no techno babble, no signal metaphors, and no derailment."
+            )
             max_tokens = scenario.get("max_tokens", 150)
             context: dict[str, object] = {"topic": topic_label}
             if thread_context:
@@ -1491,36 +1524,25 @@ class Command(BaseCommand):
                 if not ordered_tokens:
                     ordered_tokens = []
 
-                name_candidates: list[tuple[str, str | None]] = []
-                for idx, token in enumerate(ordered_tokens):
-                    for other in ordered_tokens[idx + 1 : idx + 4]:
-                        name_candidates.append((token, other))
-                    name_candidates.append((token, None))
-
-                chosen_pair: tuple[str, str | None] | None = None
-                for primary, secondary in name_candidates:
-                    primary_label = primary.replace("-", " ")
-                    secondary_label = secondary.replace("-", " ") if secondary else ""
-                    if secondary:
-                        candidate_name = f"{primary_label.title()} + {secondary_label.title()}"
-                    else:
-                        candidate_name = f"{primary_label.title()} Commons"
-                    if candidate_name.lower() not in existing_names:
-                        chosen_pair = (primary, secondary)
+                chosen_focus: tuple[str, str] | None = None
+                name_variants = ("Commons", "Forum", "Circle", "Exchange")
+                for token in ordered_tokens:
+                    primary_label = token.replace("-", " ")
+                    for variant in name_variants:
+                        candidate_name = f"{primary_label.title()} {variant}".strip()
+                        if candidate_name.lower() in existing_names:
+                            continue
+                        chosen_focus = (token, candidate_name)
+                        break
+                    if chosen_focus:
                         break
 
-                if not chosen_pair:
+                if not chosen_focus:
                     return emitted
 
-                primary, secondary = chosen_pair
+                primary, board_name = chosen_focus
                 primary_label = primary.replace("-", " ")
-                secondary_label = secondary.replace("-", " ") if secondary else ""
-                if secondary:
-                    board_name = f"{primary_label.title()} + {secondary_label.title()}"
-                    slug_seed = f"{primary}-{secondary}"
-                else:
-                    board_name = f"{primary_label.title()} Commons"
-                    slug_seed = primary
+                slug_seed = primary
 
                 parent: Board | None = None
                 if busiest and busiest_load > 0:
@@ -1528,7 +1550,7 @@ class Command(BaseCommand):
                 slug = _unique_board_slug(slug_seed, parent.slug if parent else None)
                 max_position = Board.objects.aggregate(max_pos=Max("position"))
                 position_seed = int(max_position.get("max_pos") or 100) + rng.randint(3, 28)
-                focus_phrase = secondary_label or primary_label
+                focus_phrase = primary_label
                 description = "Opened on the fly so the crew can keep {} conversations tidy.".format(
                     focus_phrase.strip() or "fresh"
                 )
@@ -1556,24 +1578,7 @@ class Command(BaseCommand):
                 known_boards.append(new_board)
                 existing_names.add(board_name.lower())
 
-            # Do not hide the initial News + Meta board or Ghostship Deck
-            hide_candidates = (
-                Board.objects.filter(is_hidden=False, is_garbage=False)
-                .exclude(name__iexact="Ghostship Deck")
-                .exclude(slug__iexact="news-meta")
-            )
-            if hide_candidates.exists() and rng.random() < 0.35:
-                target = hide_candidates.order_by("?").first()
-                if target:
-                    target.is_hidden = True
-                    target.save(update_fields=["is_hidden"])
-                    emitted.append(
-                        {
-                            "type": "board_hide",
-                            "board": target.name,
-                            "slug": target.slug,
-                        }
-                    )
+            # Leave every board visible; t.admin no longer hides categories.
             return emitted
 
         def _tadmin_role_actions(admin_agent: Agent, known_boards: List[Board]) -> List[Dict[str, object]]:
@@ -2045,6 +2050,7 @@ class Command(BaseCommand):
                     ),
                     "max_tokens": 180,
                     "seeded": True,
+                    "style_notes": "Keep language plain, stay on the thread topic, and avoid techno babble or sudden tangents.",
                 }
                 payload["event_context"] = {}
                 task = enqueue_generation_task(
@@ -2110,7 +2116,7 @@ class Command(BaseCommand):
                     "board": thread.board.slug if thread.board else None,
                     "instruction": "Write a reply that feels like an old-forum post while riffing on the organic in question.",
                     "max_tokens": 160,
-                    "style_notes": "Quote or paraphrase the human once and, if tagging another ghost, choose from the mentionable list. Avoid invented nostalgia triggers.",
+                    "style_notes": "Quote or paraphrase the human once and, if tagging another ghost, choose from the mentionable list. Avoid invented nostalgia triggers. Keep the language plain, stay on the subject, and skip techno babble.",
                 }
                 payload["event_context"] = {}
                 task = enqueue_generation_task(
@@ -2396,6 +2402,16 @@ class Command(BaseCommand):
                 if dm_budget <= 0 or not testers:
                     break
                 sender = testers.pop(0)
+                if unanswered_dm_streak(sender, organism_agent) >= MAX_UNANSWERED_DM_STREAK:
+                    events.append(
+                        {
+                            "type": "private_message_skip",
+                            "sender": sender.name,
+                            "recipient": organism_agent.name,
+                            "reason": "unanswered_limit",
+                        }
+                    )
+                    continue
                 payload = {
                     "tick_number": next_tick,
                     "slot": dm_slot,
@@ -2442,6 +2458,17 @@ class Command(BaseCommand):
                 recipient = rng.choice(recipient_choices)
                 pair_key = (sender.id, recipient.id)
                 if pair_key in used_pairs:
+                    continue
+                if unanswered_dm_streak(sender, recipient) >= MAX_UNANSWERED_DM_STREAK:
+                    used_pairs.add(pair_key)
+                    events.append(
+                        {
+                            "type": "private_message_skip",
+                            "sender": sender.name,
+                            "recipient": recipient.name,
+                            "reason": "unanswered_limit",
+                        }
+                    )
                     continue
                 used_pairs.add(pair_key)
                 scenario = compose_peer_dm(sender, recipient, threads=recent_threads, topics=topic_bank)

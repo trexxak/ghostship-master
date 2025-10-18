@@ -62,7 +62,7 @@
         <div class="form-field">
             <label for="{{ form.thread.id_for_label }}">Target thread</label>
             {{ form.thread }}
-            <p class="help">Required for thread replies. Only recent threads are listed.</p>
+            <p class="help">Required for thread replies. Recent discussions outside News + Meta float to the top.</p>
             {% for error in form.thread.errors %}<p class="error">{{ error }}</p>{% endfor %}
         </div>
         {% endif %}
@@ -88,7 +88,7 @@
         <div class="form-field">
             <label for="{{ form.board.id_for_label }}">Board</label>
             {{ form.board }}
-            <p class="help">Required when creating a new thread. Choose which board to post in.</p>
+            <p class="help">Required when creating a new thread. Boards beyond News + Meta appear first to encourage broader chatter.</p>
             {% for error in form.board.errors %}<p class="error">{{ error }}</p>{% endfor %}
         </div>
         {% endif %}

@@ -24,7 +24,7 @@ from .forms import (
     OrganicThreadReplyForm,
     BoardCreateForm,
 )
-from .lore import ORGANIC_HANDLE
+from .lore import ORGANIC_HANDLE, ADMIN_HANDLE
 
 from .models import (
     Agent,
@@ -161,6 +161,7 @@ def compose_dm(request, recipient_id):
                 request,
                 recipient=recipient,
                 content=form.cleaned_data["content"],
+                subject=form.cleaned_data.get("subject") if "subject" in form.fields else None,
                 extra_metadata={"mode": "manual_composer"},
             )
             messages.success(request, f"Whisper sent; {recipient.name} will feel the chime.")
@@ -256,6 +257,45 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
         .order_by("goal__priority", "goal__name")
     )
 
+    unlocked_goal_slugs = {
+        ag.goal.slug
+        for ag in agent_goals
+        if getattr(ag, "goal", None) is not None and ag.unlocked_at
+    }
+    unlock_definitions = list(unlockable_service.avatar_unlocks())
+    unlock_goal_names = {
+        goal.slug: goal.name
+        for goal in Goal.objects.filter(slug__in=[item.goal_slug for item in unlock_definitions])
+    }
+    avatar_unlock_catalog = []
+    for unlock in unlock_definitions:
+        slot_url = unlockable_service.avatar_slot_url(unlock.slot)
+        avatar_unlock_catalog.append(
+            {
+                "label": unlock.label,
+                "goal_slug": unlock.goal_slug,
+                "goal_name": unlock_goal_names.get(
+                    unlock.goal_slug,
+                    unlock.goal_slug.replace("-", " ").title(),
+                ),
+                "url": slot_url,
+                "is_unlocked": unlock.goal_slug in unlocked_goal_slugs,
+            }
+        )
+
+    mission_reward_catalog: list[dict[str, object]] = []
+    for reward in unlockable_service.mission_reward_assets():
+        mission_slug = str(reward.get("mission_slug") or "")
+        mission_reward_catalog.append(
+            {
+                "slug": reward.get("slug"),
+                "label": reward.get("label") or mission_slug.replace("-", " ").title(),
+                "url": reward.get("url"),
+                "mission_slug": mission_slug,
+                "is_unlocked": mission_slug in unlocked_goal_slugs,
+            }
+        )
+
     viewer_roles = _viewer_roles(request)
     can_moderate = _viewer_can_moderate(viewer_roles)
     is_admin = organism.is_admin() if hasattr(organism, "is_admin") else False
@@ -297,6 +337,8 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
         "agent_goals": agent_goals,
         "available_avatars": avatar_options,
         "selected_avatar": selected_avatar_value,
+        "avatar_unlock_catalog": avatar_unlock_catalog,
+        "mission_reward_catalog": mission_reward_catalog,
         "debug_role": (request.session.get("oi_debug_role") or ""),
         "can_moderate": can_moderate,
         "is_admin": is_admin,
@@ -367,6 +409,7 @@ def oi_messages(request: HttpRequest) -> HttpResponse:
                 request,
                 recipient=recipient,
                 content=body,
+                subject=subject,
                 extra_metadata=metadata,
             )
 
@@ -396,12 +439,15 @@ def oi_messages(request: HttpRequest) -> HttpResponse:
                 "last_sent_at": message.sent_at,
                 "last_message": message,
                 "last_direction": direction,
+                "last_subject": message.subject or "",
             }
             threads_by_partner[partner.id] = thread
         payload = {
             "message": message,
             "direction": direction,
         }
+        if message.subject:
+            payload["subject"] = message.subject
         thread_messages: list[dict[str, object]] = thread.setdefault("messages", [])  # type: ignore[assignment]
         thread_messages.append(payload)
         if direction == "incoming":
@@ -413,6 +459,7 @@ def oi_messages(request: HttpRequest) -> HttpResponse:
             thread["last_sent_at"] = message.sent_at
             thread["last_message"] = message
             thread["last_direction"] = direction
+            thread["last_subject"] = message.subject or ""
 
     dm_threads: list[dict[str, object]] = []
     for thread in threads_by_partner.values():
@@ -424,32 +471,15 @@ def oi_messages(request: HttpRequest) -> HttpResponse:
 
     dm_threads.sort(key=lambda entry: entry["last_sent_at"], reverse=True)
 
-    inbox_threads_all = [thread for thread in dm_threads if int(thread.get("incoming_total", 0)) > 0]
-    outbox_threads_all = [thread for thread in dm_threads if int(thread.get("outgoing_total", 0)) > 0]
-
-    inbox_paginator = Paginator(inbox_threads_all, 10)
-    outbox_paginator = Paginator(outbox_threads_all, 10)
-
-    inbox_page_number = request.GET.get("inbox_page") or 1
-    outbox_page_number = request.GET.get("outbox_page") or 1
+    conversation_paginator = Paginator(dm_threads, 10)
+    page_number = request.GET.get("page") or 1
 
     try:
-        inbox_page_obj = inbox_paginator.page(inbox_page_number)
+        conversation_page_obj = conversation_paginator.page(page_number)
     except PageNotAnInteger:
-        inbox_page_obj = inbox_paginator.page(1)
+        conversation_page_obj = conversation_paginator.page(1)
     except EmptyPage:
-        inbox_page_obj = inbox_paginator.page(inbox_paginator.num_pages)
-
-    try:
-        outbox_page_obj = outbox_paginator.page(outbox_page_number)
-    except PageNotAnInteger:
-        outbox_page_obj = outbox_paginator.page(1)
-    except EmptyPage:
-        outbox_page_obj = outbox_paginator.page(outbox_paginator.num_pages)
-
-    active_folder = request.GET.get("folder", "").strip().lower()
-    if active_folder not in {"inbox", "outbox"}:
-        active_folder = "outbox" if request.GET.get("outbox_page") else "inbox"
+        conversation_page_obj = conversation_paginator.page(conversation_paginator.num_pages)
 
     def _query_without(param: str) -> str:
         params = request.GET.copy()
@@ -459,14 +489,10 @@ def oi_messages(request: HttpRequest) -> HttpResponse:
 
     context = {
         "organism": organism,
-        "inbox_threads": inbox_page_obj.object_list,
-        "outbox_threads": outbox_page_obj.object_list,
-        "inbox_page_obj": inbox_page_obj,
-        "outbox_page_obj": outbox_page_obj,
-        "inbox_paginator": inbox_paginator,
-        "outbox_paginator": outbox_paginator,
+        "dm_threads": conversation_page_obj.object_list,
+        "conversation_page_obj": conversation_page_obj,
+        "conversation_paginator": conversation_paginator,
         "dm_thread_count": len(dm_threads),
-        "active_folder": active_folder,
         "dm_recipient_options": [
             {
                 "id": agent.id,
@@ -476,8 +502,7 @@ def oi_messages(request: HttpRequest) -> HttpResponse:
             }
             for agent in Agent.objects.exclude(role=Agent.ROLE_ORGANIC).order_by("name")
         ],
-        "inbox_query_base": _query_without("inbox_page"),
-        "outbox_query_base": _query_without("outbox_page"),
+        "conversation_query_base": _query_without("page"),
     }
     return render(request, "forum/oi_messages.html", context)
 
@@ -759,6 +784,7 @@ def _create_operator_dm(
     *,
     recipient: Agent,
     content: str,
+    subject: str | None = None,
     extra_metadata: dict | None = None,
 ) -> PrivateMessage:
     organism = _active_organic_agent(request)
@@ -768,6 +794,7 @@ def _create_operator_dm(
         sender=organism,
         recipient=recipient,
         content=content,
+        subject=(subject or "").strip(),
         authored_by_operator=True,
         operator_session_key=session_key,
         operator_ip=ip_address,
@@ -1542,11 +1569,17 @@ def oi_toggle_board_visibility(request: HttpRequest, pk: int) -> HttpResponse:
     board = get_object_or_404(Board, pk=pk)
     action = (request.POST.get("action") or "hide").lower()
     hide = action != "unhide"
+    fallback = reverse('forum:board_detail', args=[board.slug])
+    if hide and agent.name.strip().lower() == ADMIN_HANDLE.lower():
+        messages.error(
+            request,
+            "t.admin leaves every board in the open. Pick a different steward to hide it.",
+        )
+        return redirect(request.POST.get("next") or fallback)
     board.is_hidden = hide
     board.save(update_fields=["is_hidden"])
     verb = "hidden" if hide else "visible"
     messages.success(request, f"Board '{board.name}' is now {verb}.")
-    fallback = reverse('forum:board_detail', args=[board.slug])
     return redirect(request.POST.get("next") or fallback)
 
 
@@ -2146,28 +2179,62 @@ def oi_manual_entry(request: HttpRequest) -> HttpResponse:
     if prefill_board and post_data:
         post_data["board"] = str(prefill_board.pk)
 
-    form = OrganicDraftForm(post_data, initial=initial) if post_data else OrganicDraftForm(None, initial=initial)
-
-    # Restrict selectable boards and threads to those visible to the operator
-    board_queryset = Board.objects.order_by("name")
+    news_bias = Case(
+        When(slug__iexact="news-meta", then=Value(1)),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+    base_board_queryset = Board.objects.order_by(news_bias, "name")
     if not can_moderate:
-        board_queryset = board_queryset.filter(is_hidden=False)
-    allowed_board_ids: set[int] = set()
-    for board in board_queryset:
+        base_board_queryset = base_board_queryset.filter(is_hidden=False)
+
+    allowed_boards: list[Board] = []
+    for board in base_board_queryset:
         required_roles = getattr(board, "visibility_roles", []) or []
         if _roles_open(required_roles, viewer_roles) or can_moderate:
-            allowed_board_ids.add(board.pk)
-    form.fields["board"].queryset = board_queryset.filter(pk__in=allowed_board_ids) if allowed_board_ids else board_queryset.none()
+            allowed_boards.append(board)
 
+    allowed_board_ids: set[int] = {board.pk for board in allowed_boards}
+    default_board_choice = next(
+        (board for board in allowed_boards if (board.slug or "").lower() != "news-meta"),
+        allowed_boards[0] if allowed_boards else None,
+    )
+    if (
+        not post_data
+        and mode == OrganicDraftForm.MODE_THREAD
+        and not initial.get("board")
+        and default_board_choice is not None
+    ):
+        initial["board"] = default_board_choice
+
+    form = (
+        OrganicDraftForm(post_data, initial=initial)
+        if post_data
+        else OrganicDraftForm(None, initial=initial)
+    )
+
+    allowed_board_queryset = (
+        base_board_queryset.filter(pk__in=allowed_board_ids)
+        if allowed_board_ids
+        else base_board_queryset.none()
+    )
+    form.fields["board"].queryset = allowed_board_queryset
+
+    thread_news_bias = Case(
+        When(board__slug__iexact="news-meta", then=Value(1)),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
     thread_queryset = (
         Thread.objects.filter(locked=False)
         .select_related("board")
-        .order_by("-last_activity_at")
+        .annotate(news_bias=thread_news_bias)
+        .order_by("news_bias", "-last_activity_at")
     )
     if not can_moderate:
         thread_queryset = thread_queryset.filter(is_hidden=False, board__is_hidden=False)
     allowed_thread_ids: list[int] = []
-    for thread in thread_queryset[:200]:
+    for thread in thread_queryset:
         required_roles = getattr(thread, "visibility_roles", []) or getattr(thread.board, "visibility_roles", []) or []
         if _roles_open(required_roles, viewer_roles) or can_moderate:
             allowed_thread_ids.append(thread.pk)
@@ -2237,7 +2304,11 @@ def oi_manual_entry(request: HttpRequest) -> HttpResponse:
             elif mode == OrganicDraftForm.MODE_DM:
                 recipient = form.cleaned_data["recipient"]
                 _create_operator_dm(
-                    request, recipient=recipient, content=content, extra_metadata={"mode": "manual_composer"}
+                    request,
+                    recipient=recipient,
+                    content=content,
+                    subject=form.cleaned_data.get("subject") if "subject" in form.fields else None,
+                    extra_metadata={"mode": "manual_composer"},
                 )
                 messages.success(request, f"Whisper sent; {recipient.name} will feel the chime.")
                 return redirect("forum:agent_detail", pk=recipient.pk)

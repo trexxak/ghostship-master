@@ -9,6 +9,7 @@ from django.utils import timezone
 from forum.services import sim_config
 from forum.services.avatar_factory import ensure_agent_avatar
 from .models import Agent, Board, Thread, Post, LoreEvent
+from .personas import persona_examples_for
 
 tick_scale = 0.5  # Scales time-based effects (e.g. post decay, mission progress) per tick
 # ==== Canon: seed state ====
@@ -735,7 +736,13 @@ def _ensure_user(user_blueprint: dict) -> Optional[Agent]:
     if user_blueprint.get("skip_create"):
         return None
     signature = user_blueprint.get("sig")
-    mind_state_defaults = {"persona_signature": signature} if signature else {}
+    handle = user_blueprint["handle"]
+    persona_examples = persona_examples_for(handle)
+    mind_state_defaults: dict[str, object] = {}
+    if signature:
+        mind_state_defaults["persona_signature"] = signature
+    if persona_examples:
+        mind_state_defaults["persona_examples"] = persona_examples
 
     defaults = {
         "archetype": user_blueprint.get("title", "Member"),
@@ -758,7 +765,6 @@ def _ensure_user(user_blueprint: dict) -> Optional[Agent]:
     elif role == "organic":
         defaults["role"] = Agent.ROLE_ORGANIC
 
-    handle = user_blueprint["handle"]
     agent = Agent.objects.filter(name__iexact=handle).first()
     if agent is None:
         agent = Agent.objects.filter(id=user_blueprint["id"]).first()
@@ -794,12 +800,17 @@ def _ensure_user(user_blueprint: dict) -> Optional[Agent]:
         agent.reputation = defaults["reputation"]; updates.append("reputation")
     if created or not agent.speech_profile:
         agent.speech_profile = defaults["speech_profile"]; updates.append("speech_profile")
-    if signature:
-        mind_state = dict(agent.mind_state or {})
-        if mind_state.get("persona_signature") != signature:
-            mind_state["persona_signature"] = signature
-            agent.mind_state = mind_state
-            updates.append("mind_state")
+    desired_mind_state = dict(agent.mind_state or {})
+    mind_state_changed = False
+    if signature and desired_mind_state.get("persona_signature") != signature:
+        desired_mind_state["persona_signature"] = signature
+        mind_state_changed = True
+    if persona_examples and desired_mind_state.get("persona_examples") != persona_examples:
+        desired_mind_state["persona_examples"] = persona_examples
+        mind_state_changed = True
+    if mind_state_changed:
+        agent.mind_state = desired_mind_state
+        updates.append("mind_state")
 
     if updates:
         agent.save(update_fields=list(dict.fromkeys(updates)))

@@ -37,6 +37,7 @@ urlpatterns = [
     path("oi/disconnect/", views.oi_disconnect, name="oi_disconnect"),
     path("oi/manual/", views.oi_manual_entry, name="oi_manual_entry"),
     path("oi/panel/", views.oi_control_panel, name="oi_control_panel"),
+    path("oi/messages/", views.oi_messages, name="oi_messages"),
     path("oi/debug/role/", views.oi_set_debug_role, name="oi_set_debug_role"),
     path("oi/tools/posts/<int:pk>/visibility/", views.oi_toggle_post_visibility, name="oi_post_visibility"),
     path("oi/tools/threads/<int:pk>/visibility/", views.oi_toggle_thread_visibility, name="oi_thread_visibility"),

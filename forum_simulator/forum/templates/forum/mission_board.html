@@ -241,7 +241,7 @@
         <div class="panel-head">
             <div>
                 <h3>Achievement Catalogue</h3>
-                <p class="meta">Hover for details. Pin any unlocked emoji for quick use in the composer.</p>
+                <p class="meta">Hover for details. Unlocked emoji auto-populate the composer dock for quick use.</p>
             </div>
             <div class="panel-controls">
                 <span class="meta">{{ badge_unlocked_count }} unlocked • {{ badge_total_count }} total</span>
@@ -272,7 +272,7 @@
                     {% endif %}
                 </div>
                 <button type="button" class="achievement-pin" data-emoji-pick="{{ goal.emoji|default:goal.icon_slug|default:'' }}">
-                    Pin emoji to dock
+                    Send emoji to dock again
                 </button>
             </li>
             {% endwith %}

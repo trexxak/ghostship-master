@@ -95,7 +95,7 @@ def collect(agent: Agent, *, since: timezone.datetime) -> List[dict[str, object]
                 "actor": actor,
                 "message": f"{actor} sent you a DM",
                 "preview": dm_preview,
-                "url": reverse("forum:oi_control_panel") + "#messages:inbox",
+                "url": reverse("forum:oi_messages") + "#inbox",
             }
         )
 

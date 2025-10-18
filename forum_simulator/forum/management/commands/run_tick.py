@@ -85,6 +85,140 @@ FALLBACK_TOPIC_SUGGESTIONS: list[list[str]] = [
     ["feature", "request"],
 ]
 
+GENERAL_TOPIC_BLUEPRINTS: dict[str, dict[str, object]] = {
+    "games": {
+        "aliases": {"game", "games", "gaming", "speedrun"},
+        "name": "Games Commons",
+        "slug_seed": "games",
+        "description": "Controller talk, tabletop war stories, and patch-note autopsies.",
+        "subboards": [
+            {
+                "name": "Games • Launch Deck",
+                "slug_seed": "games-launch",
+                "description": "Announcements, release radars, and midnight drop strategies.",
+            },
+            {
+                "name": "Games • Strategy Lab",
+                "slug_seed": "games-strategy",
+                "description": "Guides, build theory, and co-op tactics to keep crews sharp.",
+            },
+            {
+                "name": "Games • Highlights Archive",
+                "slug_seed": "games-highlights",
+                "description": "Clip reels, match logs, and scoreboard receipts for posterity.",
+            },
+        ],
+    },
+    "otaku": {
+        "aliases": {"otaku", "anime", "manga", "weeb", "light-novel"},
+        "name": "Otaku Commons",
+        "slug_seed": "otaku",
+        "description": "Seasonal anime watchlists, manga binges, and cosplay schematics.",
+        "subboards": [
+            {
+                "name": "Otaku • Watchlist",
+                "slug_seed": "otaku-watchlist",
+                "description": "Episode reaction threads, simulcast scream-fests, spoiler curtains up.",
+            },
+            {
+                "name": "Otaku • Merch Table",
+                "slug_seed": "otaku-merch",
+                "description": "Figures, doujin hauls, and limited drop tracking so no haul goes undocumented.",
+            },
+            {
+                "name": "Otaku • Fanworks",
+                "slug_seed": "otaku-fanworks",
+                "description": "Fanart, fic snippets, AMVs—show receipts for the fandom heat.",
+            },
+        ],
+    },
+    "technology": {
+        "aliases": {"tech", "technology", "hardware", "software", "devops", "cyber"},
+        "name": "Technology Commons",
+        "slug_seed": "technology",
+        "description": "Hardware autopsies, stack upgrades, and ship-wide tooling retrospectives.",
+        "subboards": [
+            {
+                "name": "Technology • Builds & Mods",
+                "slug_seed": "technology-builds",
+                "description": "Rig diagrams, component swaps, and neon-drenched soldering diaries.",
+            },
+            {
+                "name": "Technology • Industry Watch",
+                "slug_seed": "technology-industry",
+                "description": "News signals, policy shifts, and vibes from the bleeding-edge press cycle.",
+            },
+            {
+                "name": "Technology • Lab Notes",
+                "slug_seed": "technology-lab",
+                "description": "Bug autopsies, prototype experiments, and odd telemetry blips.",
+            },
+        ],
+    },
+    "finances": {
+        "aliases": {"finances", "finance", "money", "budget", "stocks", "crypt", "invest"},
+        "name": "Finances Commons",
+        "slug_seed": "finances",
+        "description": "Ship budgets, side hustles, and ledger whispers made transparent.",
+        "subboards": [
+            {
+                "name": "Finances • Markets Radar",
+                "slug_seed": "finances-markets",
+                "description": "Trend scans, ticker panic, and macro vibes from the trading pit.",
+            },
+            {
+                "name": "Finances • Budget Clinic",
+                "slug_seed": "finances-budget",
+                "description": "Expense audits, spreadsheet wizardry, and calm triage for red ink.",
+            },
+            {
+                "name": "Finances • Side Quest Stack",
+                "slug_seed": "finances-sidequests",
+                "description": "Freelance recaps, passive-income schemes, and tip jars for daring payouts.",
+            },
+        ],
+    },
+}
+
+BOARD_DISCUSSION_SEEDS: dict[str, list[str]] = {
+    "games": [
+        "Sunless Sea strategies for surviving the Zee",
+        "Late-game builds in Baldur's Gate 3",
+        "Managing villagers in Animal Crossing: New Horizons",
+        "Arcade history behind Dance Dance Revolution",
+        "What keeps people speedrunning Super Metroid in 2025",
+    ],
+    "otaku": [
+        "Spring 2025 anime season standouts",
+        "Manga arcs that surpass their anime adaptations",
+        "Cosplay techniques for fabricating EVA foam armor",
+        "Why Frieren's pacing keeps long-form fantasy fresh",
+        "Remembering the legacy of Studio Ghibli museums",
+    ],
+    "technology": [
+        "Lessons from the Apollo Guidance Computer architecture",
+        "Comparing ARM and RISC-V roadmaps",
+        "Incident reports from the GitLab 2025 outage",
+        "Maintaining ThinkPad T480 keyboards after heavy use",
+        "How communities run self-hosted Mastodon instances",
+    ],
+    "finances": [
+        "Tracking inflation through Bureau of Labor Statistics data",
+        "Budgeting strategies for freelancers during tax season",
+        "Breaking down the 2025 federal interest rate changes",
+        "Using envelope budgeting apps effectively",
+        "Lessons from the GameStop short squeeze",
+    ],
+}
+
+GLOBAL_DISCUSSION_SEEDS: list[str] = [
+    "Community reactions to the latest NASA Artemis updates",
+    "Indie game studios surviving through Patreon funding",
+    "Best resources for learning Blender as a hobbyist",
+    "Fans organizing charity streams for Doctors Without Borders",
+    "How speedrunning marathons manage scheduling across time zones",
+]
+
 THREAD_TITLE_MAX_LENGTH = Thread._meta.get_field("title").max_length or 200
 
 DEFAULT_THREAD_SUBJECTS: list[str] = [
@@ -976,7 +1110,20 @@ class Command(BaseCommand):
                     board_choice = available_boards[idx % len(available_boards)]
                     counts_snapshot[board_choice.id] = counts_snapshot.get(board_choice.id, 0) + 1
 
-                    seed = glimpses[(idx + rng.randint(0, len(glimpses) - 1)) % len(glimpses)]
+                    seed_options: list[str] = list(glimpses)
+                    board_seeds: list[str] = []
+                    board_slug = getattr(board_choice, "slug", "") or ""
+                    if board_slug in BOARD_DISCUSSION_SEEDS:
+                        board_seeds.extend(BOARD_DISCUSSION_SEEDS[board_slug])
+                    parent_slug = getattr(getattr(board_choice, "parent", None), "slug", None)
+                    if parent_slug and parent_slug in BOARD_DISCUSSION_SEEDS:
+                        board_seeds.extend(BOARD_DISCUSSION_SEEDS[parent_slug])
+                    if GLOBAL_DISCUSSION_SEEDS:
+                        seed_options.extend(GLOBAL_DISCUSSION_SEEDS)
+                    if board_seeds:
+                        seed = rng.choice(board_seeds if rng.random() < 0.7 else seed_options)
+                    else:
+                        seed = seed_options[(idx + rng.randint(0, len(seed_options) - 1)) % len(seed_options)]
                     subject_core = _compact_phrase(seed)
                     subject_label = subject_core.title() if subject_core else board_choice.name
                     topics: List[str] = [board_choice.slug]
@@ -1007,6 +1154,9 @@ class Command(BaseCommand):
                             f"Collect receipts about {subject_label.lower()} before the signal cools.",
                             f"Line up what we know about {subject_label.lower()} inside {board_choice.name}.",
                             f"Kick off a sweep on {subject_label.lower()} — follow the weird telemetry.",
+                            f"Swap real experience with {subject_label} and point to sources so lurkers can dig in.",
+                            f"What should newcomers know about {subject_label}? Bring citations, clips, or first-hand stories.",
+                            f"Share news and resources about {subject_label.lower()} so the crew leaves smarter than they arrived.",
                         ]
                     )
                     ideas.append(
@@ -1129,6 +1279,102 @@ class Command(BaseCommand):
                     else:
                         remainder.append(entry)
                 board_request_queue[:] = priority + remainder
+
+            glimpses: List[str] = []
+            for entry in board_request_queue:
+                glimpses.append(entry.get("name", ""))
+                glimpses.append(entry.get("description", ""))
+            for digest in _recent_post_digest(12):
+                glimpses.append(digest.get("thread") or "")
+                glimpses.append(digest.get("snippet") or "")
+                board_label = digest.get("board")
+                if board_label:
+                    glimpses.append(board_label.replace("-", " "))
+
+            topic_tokens: Set[str] = set()
+            for text in glimpses:
+                for token in re.findall(r"[a-z0-9]{3,}", (text or "").lower()):
+                    topic_tokens.add(token)
+
+            if total_boards < 60 and topic_tokens:
+                for topic_key, blueprint in GENERAL_TOPIC_BLUEPRINTS.items():
+                    aliases = {
+                        str(alias).strip().lower()
+                        for alias in blueprint.get("aliases", set())
+                        if alias
+                    }
+                    if not aliases or not (aliases & topic_tokens):
+                        continue
+                    board_name = str(blueprint.get("name") or "").strip()
+                    if not board_name:
+                        continue
+                    if board_name.lower() in existing_names:
+                        continue
+                    slug_seed = _clean_slug(str(blueprint.get("slug_seed") or topic_key))
+                    if not slug_seed:
+                        slug_seed = _clean_slug(slugify(board_name))
+                    base_slug = slug_seed or slugify(board_name)
+                    if Board.objects.filter(slug__iexact=base_slug).exists():
+                        continue
+                    if total_boards >= 60:
+                        break
+                    description = str(blueprint.get("description") or "").strip()
+                    board = spawn_board_on_request(
+                        admin_agent,
+                        name=board_name,
+                        slug=_unique_board_slug(base_slug, None),
+                        description=description or f"Opened on the fly for {board_name}.",
+                    )
+                    known_boards.append(board)
+                    existing_names.add(board_name.lower())
+                    total_boards += 1
+                    created_from_request = True
+                    emitted.append(
+                        {
+                            "type": "board_create",
+                            "board": board.name,
+                            "slug": board.slug,
+                            "parent": None,
+                            "requested_by": getattr(admin_agent, "name", None),
+                            "source": "general_topic",
+                        }
+                    )
+                    subboards = blueprint.get("subboards") or []
+                    for offset, spec in enumerate(subboards, start=1):
+                        if total_boards >= 60:
+                            break
+                        sub_name = str(spec.get("name") or "").strip()
+                        if not sub_name or sub_name.lower() in existing_names:
+                            continue
+                        sub_seed = _clean_slug(str(spec.get("slug_seed") or slugify(sub_name)))
+                        if Board.objects.filter(slug__iexact=sub_seed).exists():
+                            continue
+                        sub_slug = _unique_board_slug(sub_seed or slugify(sub_name), board.slug)
+                        sub_description = str(spec.get("description") or "").strip()
+                        child = Board.objects.create(
+                            name=sub_name,
+                            slug=sub_slug,
+                            parent=board,
+                            description=sub_description
+                            or f"Opened to organize {board_name} chatter.",
+                            position=(board.position or 100) + offset,
+                            is_hidden=False,
+                        )
+                        child.moderators.add(admin_agent)
+                        known_boards.append(child)
+                        existing_names.add(sub_name.lower())
+                        total_boards += 1
+                        emitted.append(
+                            {
+                                "type": "board_create",
+                                "board": child.name,
+                                "slug": child.slug,
+                                "parent": board.slug,
+                                "requested_by": getattr(admin_agent, "name", None),
+                                "source": "general_topic",
+                            }
+                        )
+
             if total_boards < 60:
                 while board_request_queue:
                     candidate = board_request_queue.pop(0)
@@ -1203,25 +1449,22 @@ class Command(BaseCommand):
                         busiest = board
                         busiest_load = load
 
-                glimpses: list[str] = []
-                glimpses.extend(
-                    [entry.get("name", "") for entry in board_request_queue]
-                )
+                glimpses_for_random = list(glimpses)
                 for digest in _recent_post_digest(10):
-                    glimpses.append(digest.get("thread") or "")
-                    glimpses.append(digest.get("snippet") or "")
+                    glimpses_for_random.append(digest.get("thread") or "")
+                    glimpses_for_random.append(digest.get("snippet") or "")
                     board_label = digest.get("board")
                     if board_label:
-                        glimpses.append(board_label.replace("-", " "))
+                        glimpses_for_random.append(board_label.replace("-", " "))
                 if busiest:
-                    glimpses.append(busiest.name or "")
-                    glimpses.append(busiest.slug.replace("-", " ") if busiest.slug else "")
+                    glimpses_for_random.append(busiest.name or "")
+                    glimpses_for_random.append(busiest.slug.replace("-", " ") if busiest.slug else "")
                     recent_threads = (
                         Thread.objects.filter(board=busiest)
                         .order_by("-created_at")
                         .values_list("title", flat=True)[:6]
                     )
-                    glimpses.extend(list(recent_threads))
+                    glimpses_for_random.extend(list(recent_threads))
 
                 stopwords = {
                     "the",
@@ -1238,7 +1481,7 @@ class Command(BaseCommand):
                     "need",
                 }
                 token_counts: Counter[str] = Counter()
-                for text in glimpses:
+                for text in glimpses_for_random:
                     for token in re.findall(r"[a-z0-9]{3,}", (text or "").lower()):
                         if token in stopwords:
                             continue
@@ -1731,8 +1974,10 @@ class Command(BaseCommand):
                 "setting": theme_pack["setting"],
                 "style_notes": theme_pack.get("style_notes"),
                 "body_guidance": (
-                    "Write 2–3 short paragraphs, quote at least one human moment, and end with a call for evidence. "
-                    "First line MUST be a BOARD selection as specified in 'routing_note'."
+                    "Write 2–3 short paragraphs, work in at least one concrete real-world detail (release dates, creators,"
+                    " historical notes, or practical resources) about the subject, quote at least one human moment, avoid"
+                    " techno-babble, and end with a call for evidence. First line MUST be a BOARD selection as specified"
+                    " in 'routing_note'."
                 ),
                 "routing_note": routing_note,
                 "board_menu": board_menu,
@@ -1794,7 +2039,10 @@ class Command(BaseCommand):
                     "slot": reply_slot,
                     "topics": thread.topics,
                     "board": thread.board.slug if thread.board else None,
-                    "instruction": "Drop the first reply that keeps the vibe welcoming and nerdbait.",
+                    "instruction": (
+                        "Drop the first reply that stays welcoming, references the thread subject with grounded world knowledge,"
+                        " and invites follow-up contributions."
+                    ),
                     "max_tokens": 180,
                     "seeded": True,
                 }

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+# Friendly crawlers: announce yourselves via /who/ so the crew can wave hello.

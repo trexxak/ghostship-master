@@ -8,6 +8,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from forum.lore import spawn_board_on_request as real_spawn_board_on_request
+from forum.management.commands import run_tick
 from forum.models import Agent, Board, GenerationTask, OracleDraw, Post, PrivateMessage, Thread, TickLog
 
 
@@ -755,3 +756,50 @@ class RunTickCommandTests(TestCase):
         self.assertTrue(welcome_events)
 
         record_tick_run_mock.assert_called_once_with(1, origin="unit-test")
+
+    def test_unanswered_dm_streak_caps_after_limit(self) -> None:
+        sender = Agent.objects.create(
+            name="Sender",
+            archetype="Helper",
+            traits={},
+            needs={},
+            cooldowns={},
+        )
+        recipient = Agent.objects.create(
+            name="Recipient",
+            archetype="Watcher",
+            traits={},
+            needs={},
+            cooldowns={},
+        )
+
+        self.assertEqual(run_tick.unanswered_dm_streak(sender, recipient), 0)
+
+        for index in range(2):
+            PrivateMessage.objects.create(
+                sender=sender,
+                recipient=recipient,
+                content=f"ping-{index}",
+            )
+
+        self.assertEqual(run_tick.unanswered_dm_streak(sender, recipient), 2)
+
+        PrivateMessage.objects.create(
+            sender=recipient,
+            recipient=sender,
+            content="reply",
+        )
+
+        self.assertEqual(run_tick.unanswered_dm_streak(sender, recipient), 0)
+
+        for index in range(4):
+            PrivateMessage.objects.create(
+                sender=sender,
+                recipient=recipient,
+                content=f"nudge-{index}",
+            )
+
+        self.assertEqual(
+            run_tick.unanswered_dm_streak(sender, recipient),
+            run_tick.MAX_UNANSWERED_DM_STREAK,
+        )

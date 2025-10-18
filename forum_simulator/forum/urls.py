@@ -9,6 +9,7 @@ app_name = "forum"
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
+    path("robots.txt", TemplateView.as_view(template_name="forum/robots.txt", content_type="text/plain"), name="robots"),
     path("service-worker.js", TemplateView.as_view(
             template_name="pwa/service-worker.js",
                content_type="application/javascript"

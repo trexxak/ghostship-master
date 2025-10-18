@@ -3538,6 +3538,165 @@ pre {
     font-size: 0.9rem;
 }
 
+.ucp-subpanel {
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(96, 150, 112, 0.26);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ucp-subpanel h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.ucp-subpanel .meta {
+    margin: 0;
+}
+
+.ucp-collection-section {
+    gap: 18px;
+}
+
+.ucp-collection-briefing {
+    border: 1px solid rgba(96, 150, 112, 0.26);
+    border-radius: 12px;
+    background: rgba(12, 22, 16, 0.62);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ucp-collection-briefing h4 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.ucp-collection-gallery {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.collection-grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.collection-card {
+    border: 1px solid rgba(96, 150, 112, 0.25);
+    border-radius: 12px;
+    background: rgba(10, 18, 12, 0.68);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.collection-card.is-unlocked {
+    border-color: rgba(111, 228, 179, 0.6);
+    box-shadow: 0 12px 24px rgba(5, 15, 9, 0.4);
+    background: rgba(18, 30, 24, 0.78);
+}
+
+.collection-card img,
+.collection-card__placeholder {
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
+    object-fit: cover;
+    border: 1px solid rgba(96, 150, 112, 0.35);
+    background: rgba(24, 38, 28, 0.82);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.collection-card__placeholder {
+    font-size: 1.2rem;
+}
+
+.collection-card__label {
+    font-weight: 600;
+    font-family: var(--font-serif);
+}
+
+.collection-card__status {
+    font-size: 0.8rem;
+    color: var(--text-subtle);
+}
+
+.avatar-gallery-grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.avatar-gallery-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(96, 150, 112, 0.28);
+    background: rgba(9, 16, 12, 0.55);
+    text-align: center;
+    opacity: 0.6;
+    transition: border-color 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+}
+
+.avatar-gallery-item.is-unlocked {
+    opacity: 1;
+    border-color: rgba(111, 228, 179, 0.6);
+    box-shadow: 0 12px 24px rgba(5, 15, 9, 0.45);
+    background: rgba(18, 30, 24, 0.75);
+}
+
+.avatar-gallery-item img,
+.avatar-gallery-placeholder {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(96, 150, 112, 0.35);
+    background: rgba(24, 38, 28, 0.8);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.avatar-gallery-placeholder {
+    font-size: 1.2rem;
+}
+
+.avatar-gallery-label {
+    font-weight: 600;
+    font-family: var(--font-serif);
+}
+
+.avatar-gallery-status {
+    font-size: 0.8rem;
+    color: var(--text-subtle);
+}
+
 .ticket-list {
     list-style: none;
     margin: 0;
@@ -3952,6 +4111,12 @@ pre {
     font-family: var(--font-serif);
     color: var(--text-muted);
 }
+.mail-thread-subject {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-subtle);
+    font-style: italic;
+}
 
 .mail-thread-meta {
     display: flex;
@@ -4031,11 +4196,27 @@ pre {
     color: var(--text-subtle);
     margin-bottom: 6px;
 }
+.mail-bubble-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.mail-bubble-arrow {
+    opacity: 0.6;
+}
 
 .mail-bubble-body {
     font-family: var(--font-serif);
     line-height: 1.65;
-    white-space: pre-wrap;
+}
+.mail-bubble-body > :last-child {
+    margin-bottom: 0;
+}
+.mail-bubble-subject {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 6px;
 }
 
 .mail-bubble-time {

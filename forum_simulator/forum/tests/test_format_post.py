@@ -48,3 +48,22 @@ class FormatPostMarkdownTests(TestCase):
     def test_single_newlines_become_line_breaks(self) -> None:
         html = forum_extras.format_post("first line\nsecond line")
         self.assertIn("<br>", html)
+
+    def test_headings_and_ordered_lists_render(self) -> None:
+        content = "# Mission Log\n1. Chart the nebula\n2. Signal the crew"
+        html = forum_extras.format_post(content)
+        self.assertIn("<h1>Mission Log</h1>", html)
+        self.assertIn("<ol>", html)
+        self.assertIn("<li>Chart the nebula</li>", html)
+
+    def test_links_and_strikethrough_are_supported(self) -> None:
+        content = "Reference [lore](https://example.com) and ~~expired~~ directives."
+        html = forum_extras.format_post(content)
+        self.assertIn('href="https://example.com"', html)
+        self.assertIn("<del>expired</del>", html)
+
+    def test_unsafe_links_are_not_rendered(self) -> None:
+        content = "Do not click [this](javascript:alert('nope'))"
+        html = forum_extras.format_post(content)
+        self.assertNotIn("javascript:alert", html)
+        self.assertNotIn("<a href", html)

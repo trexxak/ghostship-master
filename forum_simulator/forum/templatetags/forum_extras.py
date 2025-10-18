@@ -1,11 +1,12 @@
 ﻿from __future__ import annotations
 
 import base64
+import html
 import hashlib
 import re
 from datetime import datetime, timedelta
 from typing import Any
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from xml.etree.ElementTree import Element, tostring
 
 from django import template
@@ -91,13 +92,20 @@ def role_badge(agent: Any) -> str:
         Agent.ROLE_MODERATOR: ("role-chip role-chip--mod", "MOD"),
         Agent.ROLE_BANNED: ("role-chip role-chip--banned", "BANNED"),
     }
-    if role == Agent.ROLE_ORGANIC or agent.name.lower() == _ORGANIC_HANDLE:
-        extras = '<span class="oi-badge" aria-label="Organic Intelligence liaison">OI</span>'
+    is_organic = role == Agent.ROLE_ORGANIC or agent.name.lower() == _ORGANIC_HANDLE
+    chip = chip_map.get(role)
+
+    badges: list[str] = []
+    if chip:
+        chip_class, chip_label = chip
+        badges.append(f'<span class="{chip_class}">{chip_label}</span>')
+    if is_organic:
+        badges.append('<span class="oi-badge" aria-label="Organic Intelligence liaison">OI</span>')
+
+    if badges:
+        extras = "".join(badges)
     else:
-        chip = chip_map.get(role)
-        if chip:
-            chip_class, chip_label = chip
-            extras = f'<span class="{chip_class}">{chip_label}</span>'
+        extras = ""
     return mark_safe(f'<span class="{classes}">@{label}{extras}</span>')
 
 
@@ -122,6 +130,17 @@ def heat_tier(value: Any) -> str:
 _AGENT_CACHE: dict[str, Agent | None] = {}
 _MENTION_PATTERN = re.compile(
     r"\[(?P<bracket>[A-Za-z0-9_.-]{2,})\]|@(?P<at>[A-Za-z0-9_.-]{2,})")
+
+_ALLOWED_LINK_SCHEMES = {"http", "https", "mailto"}
+
+
+def _is_safe_link(url: str) -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    if not parsed.scheme:
+        return url.startswith("/")
+    return parsed.scheme.lower() in _ALLOWED_LINK_SCHEMES
 
 
 def _build_mention_element(name: str) -> tuple[Element | None, str]:
@@ -225,6 +244,19 @@ def _render_inline_markup(text: str) -> str:
                 result.append(escape("*"))
                 index += 1
                 continue
+            if segment.startswith("~~", index):
+                close = segment.find("~~", index + 2)
+                if close != -1:
+                    before = segment[index - 1] if index > 0 else " "
+                    after = segment[close + 2] if close + 2 < length else " "
+                    if (before.isspace() or before in "([{'\"") and (after.isspace() or after in ")]}'\"',.!?:;"):
+                        inner = _render_segment(segment[index + 2 : close])
+                        result.append(f"<del>{inner}</del>")
+                        index = close + 2
+                        continue
+                result.append(escape("~"))
+                index += 1
+                continue
             if char == "_":
                 close = segment.find("_", index + 1)
                 if close != -1 and close > index + 1:
@@ -248,7 +280,35 @@ def _render_inline_markup(text: str) -> str:
                 result.append(escape("`"))
                 index += 1
                 continue
-            if char in {"@", "["}:
+            if char == "[":
+                close = segment.find("]", index + 1)
+                if close != -1:
+                    if close + 1 < length and segment[close + 1] == "(":
+                        end = segment.find(")", close + 2)
+                        if end != -1:
+                            label_text = segment[index + 1 : close]
+                            href = segment[close + 2 : end].strip()
+                            if _is_safe_link(href):
+                                inner = _render_segment(label_text)
+                                safe_href = html.escape(href, quote=True)
+                                result.append(f'<a href="{safe_href}" rel="nofollow">{inner}</a>')
+                                index = end + 1
+                                continue
+                            fallback = _render_segment(label_text)
+                            result.append(fallback)
+                            index = end + 1
+                            continue
+                    match = _MENTION_PATTERN.match(segment, index)
+                    if match:
+                        name = match.group("bracket") or match.group("at") or ""
+                        element, fallback = _build_mention_element(name)
+                        if element is not None:
+                            result.append(tostring(element, encoding="unicode", method="html"))
+                        else:
+                            result.append(escape(fallback))
+                        index = match.end()
+                        continue
+            if char == "@":
                 match = _MENTION_PATTERN.match(segment, index)
                 if match:
                     name = match.group("bracket") or match.group("at") or ""
@@ -287,6 +347,22 @@ def format_post(value: Any) -> str:
         line = lines[pointer]
         stripped = line.strip()
 
+        heading_match = re.match(r"^(#{1,6})\s+(.*)$", stripped)
+        if heading_match:
+            hashes = heading_match.group(1)
+            content = heading_match.group(2)
+            level = min(len(hashes), 6)
+            html_parts.append(f"<h{level}>{_render_inline_markup(content.strip())}</h{level}>")
+            pointer += 1
+            pointer = _consume_blank(pointer)
+            continue
+
+        if re.match(r"^([-*_]\s*){3,}$", stripped):
+            html_parts.append("<hr>")
+            pointer += 1
+            pointer = _consume_blank(pointer)
+            continue
+
         if stripped.startswith("```"):
             language = stripped[3:].strip()
             pointer += 1
@@ -319,12 +395,12 @@ def format_post(value: Any) -> str:
             pointer = _consume_blank(pointer)
             continue
 
-        if stripped.startswith("- "):
+        if re.match(r"^[-*+]\s+", stripped):
             items: list[str] = []
             while pointer < total_lines:
                 current = lines[pointer]
                 current_stripped = current.strip()
-                if current_stripped.startswith("- "):
+                if re.match(r"^[-*+]\s+", current_stripped):
                     items.append(current_stripped[2:])
                     pointer += 1
                     continue
@@ -332,6 +408,23 @@ def format_post(value: Any) -> str:
             if items:
                 item_html = "".join(f"<li>{_render_inline_markup(item)}</li>" for item in items)
                 html_parts.append(f"<ul>{item_html}</ul>")
+            pointer = _consume_blank(pointer)
+            continue
+
+        if re.match(r"^\d+\.\s+", stripped):
+            items = []
+            while pointer < total_lines:
+                current = lines[pointer]
+                current_stripped = current.strip()
+                match = re.match(r"^(\d+)\.\s+(.*)$", current_stripped)
+                if match:
+                    items.append(match.group(2))
+                    pointer += 1
+                    continue
+                break
+            if items:
+                item_html = "".join(f"<li>{_render_inline_markup(item)}</li>" for item in items)
+                html_parts.append(f"<ol>{item_html}</ol>")
             pointer = _consume_blank(pointer)
             continue
 

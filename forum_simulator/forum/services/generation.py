@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from forum.models import Agent, GenerationTask, Post, PrivateMessage, Thread, ModerationTicket, OrganicInteractionLog
 from forum.openrouter import DEFAULT_MAX_TOKENS, generate_completion, remaining_requests
+from forum.personas import persona_examples_for
 from forum.services import configuration as config_service
 
 logger = logging.getLogger(__name__)
@@ -387,6 +388,7 @@ def _build_prompt(task: GenerationTask) -> str:
         "Use these attributes as guidance for tone and perspective; avoid repeating the agent's handle unless it reads naturally.",
         "When referring to yourself or any other ghost, write the handle with an @ prefix (e.g. @trexxak) instead of leading the post with 'Name -'.",
         "Write like an engaged forum regular who mixes receipts with reactions and the occasional aside.",
+        "Stay anchored to this persona's voice so every sentence sounds unmistakably like them.",
         "Let a little personality leak through—curiosity, humor, or concern are welcome as long as the evidence stays clear.",
         "Prefer grounded, evidence-focused language rather than retro web slang or forced nostalgia.",
     ]
@@ -395,6 +397,14 @@ def _build_prompt(task: GenerationTask) -> str:
     signature_hint = mind_state.get("persona_signature") or mind_state.get("signature")
     if signature_hint:
         persona_bits.append(f"Voice sample: {signature_hint}")
+
+    persona_examples = mind_state.get("persona_examples")
+    if not persona_examples:
+        persona_examples = persona_examples_for(agent.name if getattr(agent, "name", None) else None)
+    if persona_examples:
+        persona_bits.append("Persona snapshots (echo the energy, not the exact words):")
+        for example in persona_examples[:3]:
+            persona_bits.append(f"- {example}")
 
     memory_state = _normalize_agent_memory(agent.memory)
     needs = agent.needs or {}

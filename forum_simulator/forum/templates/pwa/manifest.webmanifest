@@ -26,10 +26,10 @@
   ],
   "shortcuts": [
     {
-      "name": "Open Inbox",
-      "short_name": "Inbox",
-      "description": "Jump straight into trexxak's DM inbox.",
-      "url": "/oi/messages/#inbox",
+      "name": "Open Messages",
+      "short_name": "Messages",
+      "description": "Jump straight into trexxak's DM console.",
+      "url": "/oi/messages/#conversations",
       "icons": [
         {
           "src": "https://imustadmitilove.trexxak.com/boden/images/icon-192x192.png",

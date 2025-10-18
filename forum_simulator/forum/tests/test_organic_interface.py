@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from forum import views as forum_views
 from forum.models import (
     Agent,
     Board,
@@ -151,6 +153,46 @@ class OrganicInterfaceTests(TestCase):
             new_thread.posts.filter(author=self.organism, content__icontains="organic interface").exists()
         )
 
+    def test_manual_entry_prioritises_non_news_boards(self) -> None:
+        self._activate_organic()
+
+        Board.objects.create(name="News + Meta", slug="news-meta")
+        Board.objects.create(name="Arcana", slug="arcana")
+
+        compose_url = f"{reverse('forum:oi_manual_entry')}?mode=thread"
+        response = self.client.get(compose_url)
+        self.assertEqual(response.status_code, 200)
+
+        form = response.context["form"]
+        board_choices = list(form.fields["board"].queryset)
+        self.assertTrue(board_choices)
+        self.assertIn("news-meta", {board.slug for board in board_choices})
+        self.assertNotEqual(board_choices[0].slug, "news-meta")
+
+        initial_board = form.initial.get("board")
+        if initial_board:
+            self.assertNotEqual(getattr(initial_board, "slug", ""), "news-meta")
+
+    def test_manual_entry_threads_bias_away_from_news(self) -> None:
+        self._activate_organic()
+
+        news = Board.objects.create(name="News + Meta", slug="news-meta")
+        bulletin = Thread.objects.create(title="Emergency Broadcast", author=self.member, board=news)
+        bulletin.last_activity_at = timezone.now()
+        bulletin.save(update_fields=["last_activity_at"])
+
+        self.thread.last_activity_at = timezone.now() - timedelta(hours=2)
+        self.thread.save(update_fields=["last_activity_at"])
+
+        response = self.client.get(reverse("forum:oi_manual_entry"))
+        self.assertEqual(response.status_code, 200)
+
+        form = response.context["form"]
+        thread_choices = list(form.fields["thread"].queryset)
+        self.assertGreaterEqual(len(thread_choices), 2)
+        self.assertIn("news-meta", {thread.board.slug for thread in thread_choices})
+        self.assertNotEqual(thread_choices[0].board.slug, "news-meta")
+
     def test_compose_dm_prefills_hidden_recipient(self) -> None:
         self._activate_organic()
 
@@ -185,6 +227,30 @@ class OrganicInterfaceTests(TestCase):
         self.assertEqual(dm.recipient_id, self.member.id)
         self.assertTrue(dm.authored_by_operator)
         self.assertEqual(dm.content, "Operator ping delivered via control panel.")
+        self.assertEqual(dm.subject, "Field report")
+
+    def test_tadmin_cannot_hide_board_via_oi_tools(self) -> None:
+        admin = Agent.objects.create(
+            name="t.admin",
+            archetype="Admin",
+            role=Agent.ROLE_ADMIN,
+        )
+        board = Board.objects.create(name="Lore Drop", slug="lore-drop")
+
+        request = self.factory.post(
+            reverse("forum:oi_board_visibility", args=[board.pk]),
+            {"action": "hide"},
+        )
+        request.session = self.client.session
+        request.oi_agent = admin
+        request.oi_active = True
+        setattr(request, "_messages", FallbackStorage(request))
+
+        response = forum_views.oi_toggle_board_visibility(request, board.pk)
+        board.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(board.is_hidden)
 
     def test_messages_view_compose_supports_multiple_recipients(self) -> None:
         self._activate_organic()
@@ -214,6 +280,7 @@ class OrganicInterfaceTests(TestCase):
             {pm.recipient.name for pm in created},
             {self.member.name, extra.name},
         )
+        self.assertTrue(all(pm.subject == "Joint ping" for pm in created))
 
     def test_messages_view_groups_messages_into_threads(self) -> None:
         self._activate_organic()
@@ -247,14 +314,12 @@ class OrganicInterfaceTests(TestCase):
         response = self.client.get(reverse("forum:oi_messages"))
         self.assertEqual(response.status_code, 200)
 
-        inbox_threads = response.context["inbox_page_obj"].object_list
-        outbox_threads = response.context["outbox_page_obj"].object_list
+        conversation_threads = response.context["conversation_page_obj"].object_list
 
         self.assertEqual(response.context["dm_thread_count"], 2)
-        self.assertEqual(len(inbox_threads), 2)
-        self.assertEqual(len(outbox_threads), 1)
+        self.assertEqual(len(conversation_threads), 2)
 
-        specter_thread = next(thread for thread in inbox_threads if thread["partner"].id == self.member.id)
+        specter_thread = next(thread for thread in conversation_threads if thread["partner"].id == self.member.id)
         self.assertEqual(specter_thread["incoming_total"], 1)
         self.assertEqual(specter_thread["outgoing_total"], 1)
         self.assertEqual(specter_thread["message_count"], 2)
@@ -262,6 +327,7 @@ class OrganicInterfaceTests(TestCase):
             [entry["direction"] for entry in specter_thread["messages"]],
             ["incoming", "outgoing"],
         )
+        self.assertEqual(specter_thread["last_subject"], "")
 
         options = response.context["dm_recipient_options"]
         self.assertTrue(any(option["name"] == partner_two.name for option in options))

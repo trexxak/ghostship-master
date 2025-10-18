@@ -1,5 +1,5 @@
 {% extends 'forum/base.html' %}
-{% load static %}
+{% load static forum_extras %}
 
 {% block title %}Messages{% endblock %}
 
@@ -11,28 +11,26 @@
     </header>
 
     <div class="mail-room-body">
-        <nav class="mail-folder-nav" aria-label="Message folders">
-            <button type="button" class="mail-folder-button{% if active_folder == 'inbox' %} is-active{% endif %}" data-mail-folder-toggle="inbox" aria-controls="inbox" aria-pressed="{% if active_folder == 'inbox' %}true{% else %}false{% endif %}">Inbox</button>
-            <button type="button" class="mail-folder-button{% if active_folder == 'outbox' %} is-active{% endif %}" data-mail-folder-toggle="outbox" aria-controls="outbox" aria-pressed="{% if active_folder == 'outbox' %}true{% else %}false{% endif %}">Outbox</button>
-        </nav>
-
-        <section class="mail-folder{% if active_folder == 'inbox' %} is-active{% endif %}" data-mail-folder="inbox" id="inbox" aria-hidden="{% if active_folder == 'inbox' %}false{% else %}true{% endif %}">
+        <section class="mail-conversations" id="conversations">
             <header class="mail-folder-header">
-                <h2>Private Message Inbox</h2>
-                <p class="meta">Only trexxak and the shipboard operators can read these. Freshest messages float to the top.</p>
+                <h2>All Conversations</h2>
+                <p class="meta">{{ dm_thread_count }} active thread{% if dm_thread_count != 1 %}s{% endif %}. Incoming and outgoing whispers share one timeline.</p>
             </header>
-            {% if inbox_threads %}
+            {% if dm_threads %}
             <ul class="mail-thread-list" data-mail-thread-list>
-                {% for thread in inbox_page_obj.object_list %}
+                {% for thread in dm_threads %}
                 <li class="mail-thread" data-mail-thread>
-                    <button type="button" class="mail-thread-toggle" data-mail-thread-toggle aria-expanded="{% if forloop.first and active_folder == 'inbox' %}true{% else %}false{% endif %}" aria-controls="mail-thread-inbox-{{ thread.partner.pk }}-{{ forloop.counter }}">
+                    <button type="button" class="mail-thread-toggle" data-mail-thread-toggle aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}" aria-controls="mail-thread-{{ thread.partner.pk }}-{{ forloop.counter }}">
                         <div class="mail-thread-toggle-body">
                             <div class="mail-thread-title">
-                                <span class="mail-thread-partner">@{{ thread.partner.name }}</span>
+                                <span class="mail-thread-partner">{{ thread.partner|role_badge }}</span>
                                 <span class="mail-thread-count">{{ thread.message_count }} message{% if thread.message_count != 1 %}s{% endif %}</span>
                             </div>
+                            {% if thread.last_subject %}
+                            <p class="mail-thread-subject">Subject: {{ thread.last_subject }}</p>
+                            {% endif %}
                             <p class="mail-thread-preview">
-                                {% if thread.last_direction == 'incoming' %}They{% else %}You{% endif %}: {{ thread.last_message.content|truncatewords:18 }}
+                                {% if thread.last_direction == 'incoming' %}They{% else %}You{% endif %}: {{ thread.last_message.content|truncatewords:22 }}
                             </p>
                         </div>
                         <div class="mail-thread-meta">
@@ -41,19 +39,24 @@
                         </div>
                         <span class="mail-thread-caret" aria-hidden="true"></span>
                     </button>
-                    <div class="mail-thread-panel" id="mail-thread-inbox-{{ thread.partner.pk }}-{{ forloop.counter }}" data-mail-thread-panel{% if not forloop.first or active_folder != 'inbox' %} hidden{% endif %}>
+                    <div class="mail-thread-panel" id="mail-thread-{{ thread.partner.pk }}-{{ forloop.counter }}" data-mail-thread-panel{% if not forloop.first %} hidden{% endif %}>
                         <ol class="mail-conversation">
                             {% for entry in thread.messages %}
                             <li class="mail-bubble{% if entry.direction == 'outgoing' %} is-outgoing{% else %} is-incoming{% endif %}">
                                 <div class="mail-bubble-meta">
-                                    {% if entry.direction == 'outgoing' %}
-                                    <strong>You</strong> to <span>@{{ thread.partner.name }}</span>
-                                    {% else %}
-                                    <strong>@{{ thread.partner.name }}</strong> to you
-                                    {% endif %}
-                                    <span class="mail-bubble-time">{{ entry.message.sent_at|date:'M j, H:i' }}</span>
+                                    <div class="mail-bubble-line">
+                                        {% if entry.direction == 'outgoing' %}
+                                        {{ organism|role_badge }} <span class="mail-bubble-arrow" aria-hidden="true">→</span> {{ thread.partner|role_badge }}
+                                        {% else %}
+                                        {{ thread.partner|role_badge }} <span class="mail-bubble-arrow" aria-hidden="true">→</span> {{ organism|role_badge }}
+                                        {% endif %}
+                                    </div>
+                                    <time class="mail-bubble-time" datetime="{{ entry.message.sent_at|date:'c' }}">{{ entry.message.sent_at|date:'M j, H:i' }}</time>
                                 </div>
-                                <div class="mail-bubble-body">{{ entry.message.content|linebreaksbr }}</div>
+                                {% if entry.message.subject %}
+                                <div class="mail-bubble-subject">Subject: {{ entry.message.subject }}</div>
+                                {% endif %}
+                                <div class="mail-bubble-body post-content">{{ entry.message.content|format_post }}</div>
                             </li>
                             {% endfor %}
                         </ol>
@@ -65,14 +68,14 @@
                 {% endfor %}
             </ul>
             <nav class="pager ucp-pager">
-                {% if inbox_page_obj.has_previous %}
-                <a class="pager-link" href="?{% if inbox_query_base %}{{ inbox_query_base }}&{% endif %}inbox_page={{ inbox_page_obj.previous_page_number }}#inbox">&lsaquo; Prev</a>
+                {% if conversation_page_obj.has_previous %}
+                <a class="pager-link" href="?{% if conversation_query_base %}{{ conversation_query_base }}&{% endif %}page={{ conversation_page_obj.previous_page_number }}#conversations">&lsaquo; Prev</a>
                 {% else %}
                 <span class="pager-link is-disabled">&lsaquo; Prev</span>
                 {% endif %}
-                <span class="pager-status">Page {{ inbox_page_obj.number }} of {{ inbox_page_obj.paginator.num_pages }}</span>
-                {% if inbox_page_obj.has_next %}
-                <a class="pager-link" href="?{% if inbox_query_base %}{{ inbox_query_base }}&{% endif %}inbox_page={{ inbox_page_obj.next_page_number }}#inbox">Next &rsaquo;</a>
+                <span class="pager-status">Page {{ conversation_page_obj.number }} of {{ conversation_page_obj.paginator.num_pages }}</span>
+                {% if conversation_page_obj.has_next %}
+                <a class="pager-link" href="?{% if conversation_query_base %}{{ conversation_query_base }}&{% endif %}page={{ conversation_page_obj.next_page_number }}#conversations">Next &rsaquo;</a>
                 {% else %}
                 <span class="pager-link is-disabled">Next &rsaquo;</span>
                 {% endif %}
@@ -81,76 +84,10 @@
             <p class="empty-state">No direct message threads yet. The deck is oddly quiet.</p>
             {% endif %}
         </section>
-
-        <section class="mail-folder{% if active_folder == 'outbox' %} is-active{% endif %}" data-mail-folder="outbox" id="outbox" aria-hidden="{% if active_folder == 'outbox' %}false{% else %}true{% endif %}">
-            <header class="mail-folder-header">
-                <h2>Sent Messages</h2>
-                <p class="meta">Echoes you already launched into the void.</p>
-            </header>
-            {% if outbox_threads %}
-            <ul class="mail-thread-list" data-mail-thread-list>
-                {% for thread in outbox_page_obj.object_list %}
-                <li class="mail-thread" data-mail-thread>
-                    <button type="button" class="mail-thread-toggle" data-mail-thread-toggle aria-expanded="{% if forloop.first and active_folder == 'outbox' %}true{% else %}false{% endif %}" aria-controls="mail-thread-outbox-{{ thread.partner.pk }}-{{ forloop.counter }}">
-                        <div class="mail-thread-toggle-body">
-                            <div class="mail-thread-title">
-                                <span class="mail-thread-partner">@{{ thread.partner.name }}</span>
-                                <span class="mail-thread-count">{{ thread.message_count }} message{% if thread.message_count != 1 %}s{% endif %}</span>
-                            </div>
-                            <p class="mail-thread-preview">
-                                {% if thread.last_direction == 'incoming' %}They{% else %}You{% endif %}: {{ thread.last_message.content|truncatewords:18 }}
-                            </p>
-                        </div>
-                        <div class="mail-thread-meta">
-                            <span class="mail-thread-time">{{ thread.last_message.sent_at|date:'M j, H:i' }}</span>
-                            <span class="mail-thread-traffic">{{ thread.incoming_total }} received · {{ thread.outgoing_total }} sent</span>
-                        </div>
-                        <span class="mail-thread-caret" aria-hidden="true"></span>
-                    </button>
-                    <div class="mail-thread-panel" id="mail-thread-outbox-{{ thread.partner.pk }}-{{ forloop.counter }}" data-mail-thread-panel{% if not forloop.first or active_folder != 'outbox' %} hidden{% endif %}>
-                        <ol class="mail-conversation">
-                            {% for entry in thread.messages %}
-                            <li class="mail-bubble{% if entry.direction == 'outgoing' %} is-outgoing{% else %} is-incoming{% endif %}">
-                                <div class="mail-bubble-meta">
-                                    {% if entry.direction == 'outgoing' %}
-                                    <strong>You</strong> to <span>@{{ thread.partner.name }}</span>
-                                    {% else %}
-                                    <strong>@{{ thread.partner.name }}</strong> to you
-                                    {% endif %}
-                                    <span class="mail-bubble-time">{{ entry.message.sent_at|date:'M j, H:i' }}</span>
-                                </div>
-                                <div class="mail-bubble-body">{{ entry.message.content|linebreaksbr }}</div>
-                            </li>
-                            {% endfor %}
-                        </ol>
-                        <div class="mail-thread-actions">
-                            <button type="button" class="btn-secondary mail-reply-button" data-mail-reply="{{ thread.partner.name }}">Reply to @{{ thread.partner.name }}</button>
-                        </div>
-                    </div>
-                </li>
-                {% endfor %}
-            </ul>
-            <nav class="pager ucp-pager">
-                {% if outbox_page_obj.has_previous %}
-                <a class="pager-link" href="?{% if outbox_query_base %}{{ outbox_query_base }}&{% endif %}outbox_page={{ outbox_page_obj.previous_page_number }}#outbox">&lsaquo; Prev</a>
-                {% else %}
-                <span class="pager-link is-disabled">&lsaquo; Prev</span>
-                {% endif %}
-                <span class="pager-status">Page {{ outbox_page_obj.number }} of {{ outbox_page_obj.paginator.num_pages }}</span>
-                {% if outbox_page_obj.has_next %}
-                <a class="pager-link" href="?{% if outbox_query_base %}{{ outbox_query_base }}&{% endif %}outbox_page={{ outbox_page_obj.next_page_number }}#outbox">Next &rsaquo;</a>
-                {% else %}
-                <span class="pager-link is-disabled">Next &rsaquo;</span>
-                {% endif %}
-            </nav>
-            {% else %}
-            <p class="empty-state">You haven’t started any message threads. The crew awaits your ping.</p>
-            {% endif %}
-        </section>
     </div>
 
     <details class="mail-compose" data-mail-compose id="compose">
-        <summary class="mail-compose-toggle">Compose freshly</summary>
+        <summary class="mail-compose-toggle">New message</summary>
         <div class="mail-compose-panel">
             <form method="post" class="ucp-form ucp-form--compose" data-dm-composer>
                 {% csrf_token %}
@@ -163,6 +100,7 @@
                 <input id="oi-compose-subject" class="ucp-input" type="text" name="subject" placeholder="Optional subject line">
                 <label class="ucp-form-label" for="oi-compose-body">Message</label>
                 <textarea id="oi-compose-body" class="ucp-input" name="body" rows="6" placeholder="Beam your message here..." data-dm-body></textarea>
+                <p class="ucp-form-hint">Markdown formatting is fully supported—use headings, lists, links, and code blocks just like thread posts.</p>
                 <div class="ucp-form-actions">
                     <button type="submit" class="btn-primary">Send message</button>
                 </div>

@@ -1,24 +1,23 @@
 """
-Improved simulation tick command with soft double-post prevention, 
-synchronous draining of DM generation tasks, optional suppression of random profiles,
-and LLM-driven board routing. This version builds upon the original run_tick
-to provide a smoother forum simulation. Key enhancements include:
+Improved simulation tick command with soft double-post prevention,
+synchronous draining of DM generation tasks, optional suppression of random
+profiles, and LLM-driven board routing. This version builds upon the original
+``run_tick`` to provide a smoother forum simulation. Key enhancements include:
 
-* Avoiding consecutive posts by the same author in the same board or thread
-  by attempting to choose alternate authors or boards when possible.
-* Draining the DM generation queue synchronously, similar to thread starts,
-  to ensure that generated private messages appear immediately rather than
-  piling up pending tasks.
-* Respecting the SIM_DISABLE_RANDOM_PROFILES setting by zeroing out
+* Avoiding consecutive posts by the same author in the same board or thread by
+  attempting to choose alternate authors or boards when possible.
+* Draining the DM generation queue synchronously, similar to thread starts, to
+  ensure that generated private messages appear immediately rather than piling
+  up pending tasks.
+* Respecting the ``SIM_DISABLE_RANDOM_PROFILES`` setting by zeroing out
   registrations, preventing random user creation during ticks.
-* Providing helper functions for last post lookup, alternate author selection,
+* Providing helper functions for last-post lookup, alternate author selection,
   and queue draining which can be reused elsewhere.
-* Preserving existing logic for board menus and LLM-based board routing, 
-  while ensuring newly created boards are considered during the same tick.
+* Preserving existing logic for board menus and LLM-based board routing, while
+  ensuring newly created boards are considered during the same tick.
 
-To use this improved command, point your management command to
-``run_tick_new`` instead of ``run_tick``. All functionality should remain
-compatible with the original command except for the improvements noted above.
+This consolidated implementation supersedes the previous ``run_tick_old``,
+``run_tick_new2``, and ``wrun_tick`` variants.
 """
 
 from __future__ import annotations
@@ -26,6 +25,7 @@ from __future__ import annotations
 import json
 import random
 import re
+from collections import Counter
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 from typing import Optional, List, Iterable, Dict, Set
@@ -198,40 +198,40 @@ THEME_PACKS = [
 ]
 
 TREXXAK_POST_TEMPLATES = [
-    "OI telemetry ping #{ping}: {observation}. Requesting {request}. {emoji}",
-    "Filed under 'organics being organics': {observation}. Ghosts, can someone {prompt}? {emoji}",
-    "trexxak status update >>> {observation}. Upload receipts or {request} before the colony gets twitchy.",
+    "hey crew, {observation}. can we {request}? {emoji}",
+    "quick log from trexxak: {observation}. anyone game to {prompt}? {emoji}",
+    "heads-up: {observation}. if you're around, {request}. {emoji}",
 ]
 
 TREXXAK_OBSERVATIONS = [
-    "the sleeper agent keeps microwaving fish at 02:17 ship time",
-    "someone taught an organic to quote their own forum posts for emphasis",
-    "a human just rage-quit and rejoined the same chatroom within 14 seconds",
-    "the organism attempted 'focus time' but opened five new tabs labeled 'just browsing'",
-    "three different organics claimed to be on a juice cleanse while ordering extra fries",
+    "the organics are trading playlists and somehow every song mentions satellites",
+    "someone just stitched my status updates into a zine and left it in the galley",
+    "a human asked if we had a board for \"soft science experiments\" and then winked at the camera",
+    "the deck lights keep flickering whenever trexxak says 'i'm fine' for the third time",
+    "three ghosts are crowdsourcing snack ideas so trexxak doesn't forget to eat",
 ]
 
 TREXXAK_REQUESTS = [
-    "thread the receipts with timestamps",
-    "double-check if the human's ringtone is actually dial-up noise",
-    "tag any ghost who owes me a favor in After Hours",
-    "cross-reference the casefile for code name 'Soggy Keyboard'",
-    "ping t.admin if this smells like policy drift",
+    "spot-check the receipts and drop any missing links",
+    "swing by with your calmest take so i can pass it along",
+    "tag whoever promised a follow-up in After Hours",
+    "nudge t.admin if this drifts off course",
+    "share one steadying idea before i ping the humans",
 ]
 
 TREXXAK_PROMPTS = [
-    "confirm I'm not reading a simulation loop",
-    "drop a clip for the highlight reel",
-    "remind me why organics think meetings are hobbies",
-    "tell me if this counts as a flare-up or just a Tuesday",
+    "lend a hand with this one",
+    "drop in a favorite detail",
+    "tell me why this feels familiar",
+    "share what you would try next",
 ]
 
 TREXXAK_EMOJI = ["o.O", "¯\\_(ツ)_/¯", "(╯°□°）╯︵ ┻━┻", ":tone-alert:", "👁️‍🗨️"]
 
 TREXXAK_DM_TEMPLATES = [
-    "Private uplink to {target}: consider sliding this intel into the casefile before the organics sterilise the log.",
-    "hey {target}, quick whisper: the organism noticed your thread. Toss in a follow-up and I'll owe you a hallway snack.",
-    "{target}, meeting request: can we run a stress-test on this organic before it rage-deletes the evidence?",
+    "hey {target}, could you add a quick note to that thread? i'll back you up in the replies.",
+    "{target}, mind giving the latest post a look? i'm keeping space open for trexxak.",
+    "hi {target}! if you have a minute, drop a follow-up so we can keep the story gentle.",
 ]
 
 PEER_DM_SCENARIOS = [
@@ -257,8 +257,8 @@ PEER_DM_SCENARIOS = [
     },
     {
         "label": "organics_watch",
-        "instruction": "Ask {recipient} to help monitor the organics this tick. Share a hunch about {topic} and request any red flags they spotted.",
-        "style_notes": "Direct but friendly; include one sensory detail and promise to swap logs later.",
+        "instruction": "Check with {recipient} on how trexxak is handling {topic}. Offer backup and ask what support would actually help.",
+        "style_notes": "Curious and collaborative; note something warm you noticed and invite them to share their read.",
         "max_tokens": 140,
     },
     {
@@ -279,19 +279,19 @@ WELCOME_DM_STYLE = (
 
 GHOST_REPLY_LIBRARY = {
     "mock": [
-        "lol trexxak, breathe. organics gonna organic. I'll grab the popcorn.",
-        "Look at the poor organism wrangler trying to herd cats with spreadsheets. adorable.",
-        "trexxak, you sure the \"OI\" stands for organic intelligence? sounds like organic irritation rn.",
+        "easy, trexxak. we've got room to breathe and i'll bring snacks to the thread.",
+        "organics gonna organic, but i'm sticking around so you don't have to juggle it solo.",
+        "hey trexxak, you're doing fine. let me grab the gentle tools and help sort this out.",
     ],
     "agitate": [
-        "Bold of you to assume the organism hasn't already tripped the meltdown alarm. I'm on it.",
-        "Give me five minutes and I'll have that human confessing their entire browser history.",
-        "Say the word, and I'll ghostwrite a DM that sends them spiraling.",
+        "i'll rally a mini crew so you get backup before anything wobbles.",
+        "count me in—i'll ping the others and keep the mood human-friendly.",
+        "i'll sweep the thread, pull receipts, and hand you a calm summary in a sec.",
     ],
     "ally": [
-        "Logged and tagged, trexxak. I’ll keep a drift watch on their feed.",
-        "Consider it done; got a clean trail queued for your mission log.",
-        "Sharing a quiet ping with the moderator stack so you can stay hands-off.",
+        "got it, trexxak. i'll keep an eye on their feed and send you the good news first.",
+        "consider it handled; i'll tidy the trail so you can focus on the fun bits.",
+        "i'll nudge the mod stack quietly and report back when it's settled.",
     ],
 }
 
@@ -1112,11 +1112,23 @@ class Command(BaseCommand):
 
         def _tadmin_board_actions(admin_agent: Agent, known_boards: List[Board]) -> List[Dict[str, object]]:
             emitted: List[Dict[str, object]] = []
-            existing_names = set(
-                Board.objects.values_list("name", flat=True)
-            )
+            existing_names = {
+                (name or "").lower()
+                for name in Board.objects.values_list("name", flat=True)
+            }
             total_boards = Board.objects.count()
             created_from_request = False
+            if board_request_queue:
+                priority: List[Dict[str, object]] = []
+                remainder: List[Dict[str, object]] = []
+                organic_handle = (ORGANIC_HANDLE or "").lower()
+                for entry in board_request_queue:
+                    requester = entry.get("requester")
+                    if getattr(requester, "name", "").lower() == organic_handle:
+                        priority.append(entry)
+                    else:
+                        remainder.append(entry)
+                board_request_queue[:] = priority + remainder
             if total_boards < 60:
                 while board_request_queue:
                     candidate = board_request_queue.pop(0)
@@ -1139,7 +1151,13 @@ class Command(BaseCommand):
                     if name.lower() in existing_names:
                         continue
                     requester = candidate.get("requester") or admin_agent
-                    description = candidate.get("description") or f"Opened on request by {requester.name}."
+                    description = candidate.get("description")
+                    if not description and getattr(requester, "name", "").lower() == (ORGANIC_HANDLE or "").lower():
+                        description = "Opened because trexxak asked—let me know if it needs tweaks."
+                    if not description and getattr(requester, "name", None):
+                        description = f"Opened on request by {requester.name}."
+                    if not description:
+                        description = "Opened on request."
                     target_slug = cleaned_slug or slugify(name)
                     target_slug = _clean_slug(target_slug) or slugify(name) or None
                     if target_slug and Board.objects.filter(slug__iexact=target_slug).exists():
@@ -1154,7 +1172,7 @@ class Command(BaseCommand):
                         parent=parent,
                     )
                     known_boards.append(board)
-                    existing_names.add(board.name)
+                    existing_names.add((board.name or "").lower())
                     total_boards += 1
                     emitted.append(
                         {
@@ -1173,49 +1191,112 @@ class Command(BaseCommand):
 
             can_create = (not created_from_request) and total_boards < 60 and rng.random() < 0.6
             if can_create:
-                parent: Board | None = None
-                narrowed = [b for b in known_boards if isinstance(b, Board)]
-                if narrowed and rng.random() < 0.65:
-                    parent = rng.choice(narrowed)
-                attempts = 0
-                board_name = ""
-                while attempts < 8:
-                    noun = rng.choice([
-                        "blackbox",
-                        "coven",
-                        "ops-cabinet",
-                        "signal-shrine",
-                        "tuning-bay",
-                        "drift-lab",
-                        "changelog",
-                        "chaos-pit",
-                        "bug-bath",
-                    ])
-                    adjective = rng.choice([
-                        "midnight",
-                        "liminal",
-                        "aux",
-                        "proxy",
-                        "hazmat",
-                        "quiet",
-                        "rapid",
-                        "feral",
-                        "glitch",
-                    ])
-                    board_name = f"{adjective.title()} {noun.title()}"
-                    if board_name not in existing_names:
+                board_usage = {
+                    row["board_id"]: row["total"]
+                    for row in Thread.objects.values("board_id").annotate(total=Count("id"))
+                }
+                busiest: Board | None = None
+                busiest_load = -1
+                for board in known_boards:
+                    load = board_usage.get(getattr(board, "id", None), 0)
+                    if load > busiest_load:
+                        busiest = board
+                        busiest_load = load
+
+                glimpses: list[str] = []
+                glimpses.extend(
+                    [entry.get("name", "") for entry in board_request_queue]
+                )
+                for digest in _recent_post_digest(10):
+                    glimpses.append(digest.get("thread") or "")
+                    glimpses.append(digest.get("snippet") or "")
+                    board_label = digest.get("board")
+                    if board_label:
+                        glimpses.append(board_label.replace("-", " "))
+                if busiest:
+                    glimpses.append(busiest.name or "")
+                    glimpses.append(busiest.slug.replace("-", " ") if busiest.slug else "")
+                    recent_threads = (
+                        Thread.objects.filter(board=busiest)
+                        .order_by("-created_at")
+                        .values_list("title", flat=True)[:6]
+                    )
+                    glimpses.extend(list(recent_threads))
+
+                stopwords = {
+                    "the",
+                    "and",
+                    "with",
+                    "that",
+                    "this",
+                    "board",
+                    "thread",
+                    "post",
+                    "trexxak",
+                    "please",
+                    "help",
+                    "need",
+                }
+                token_counts: Counter[str] = Counter()
+                for text in glimpses:
+                    for token in re.findall(r"[a-z0-9]{3,}", (text or "").lower()):
+                        if token in stopwords:
+                            continue
+                        token_counts[token] += 1
+
+                ordered_tokens = [token for token, _ in token_counts.most_common(8)]
+                if not ordered_tokens:
+                    ordered_tokens = []
+
+                name_candidates: list[tuple[str, str | None]] = []
+                for idx, token in enumerate(ordered_tokens):
+                    for other in ordered_tokens[idx + 1 : idx + 4]:
+                        name_candidates.append((token, other))
+                    name_candidates.append((token, None))
+
+                chosen_pair: tuple[str, str | None] | None = None
+                for primary, secondary in name_candidates:
+                    primary_label = primary.replace("-", " ")
+                    secondary_label = secondary.replace("-", " ") if secondary else ""
+                    if secondary:
+                        candidate_name = f"{primary_label.title()} + {secondary_label.title()}"
+                    else:
+                        candidate_name = f"{primary_label.title()} Commons"
+                    if candidate_name.lower() not in existing_names:
+                        chosen_pair = (primary, secondary)
                         break
-                    board_name = f"{board_name} {rng.randint(2, 999)}"
-                    attempts += 1
-                slug_prefix = parent.slug if parent else None
-                slug = _unique_board_slug(board_name, slug_prefix)
+
+                if not chosen_pair:
+                    return emitted
+
+                primary, secondary = chosen_pair
+                primary_label = primary.replace("-", " ")
+                secondary_label = secondary.replace("-", " ") if secondary else ""
+                if secondary:
+                    board_name = f"{primary_label.title()} + {secondary_label.title()}"
+                    slug_seed = f"{primary}-{secondary}"
+                else:
+                    board_name = f"{primary_label.title()} Commons"
+                    slug_seed = primary
+
+                parent: Board | None = None
+                if busiest and busiest_load > 0:
+                    parent = busiest if busiest.parent is None else busiest.parent
+                slug = _unique_board_slug(slug_seed, parent.slug if parent else None)
                 max_position = Board.objects.aggregate(max_pos=Max("position"))
                 position_seed = int(max_position.get("max_pos") or 100) + rng.randint(3, 28)
+                focus_phrase = secondary_label or primary_label
+                description = "Opened on the fly so the crew can keep {} conversations tidy.".format(
+                    focus_phrase.strip() or "fresh"
+                )
+                if busiest and busiest.name:
+                    description += f" Built because {busiest.name} keeps overflowing."
+
                 new_board = Board.objects.create(
                     name=board_name,
                     slug=slug,
                     parent=parent,
-                    description=f"t.admin spun this deck for {noun.replace('-', ' ')} experiments.",
+                    description=description,
                     position=position_seed,
                     is_hidden=False,
                 )
@@ -1226,10 +1307,11 @@ class Command(BaseCommand):
                         "board": new_board.name,
                         "slug": new_board.slug,
                         "parent": new_board.parent.slug if new_board.parent else None,
+                        "source": "dynamic_demand",
                     }
                 )
                 known_boards.append(new_board)
-                existing_names.add(board_name)
+                existing_names.add(board_name.lower())
 
             # Do not hide the initial News + Meta board or Ghostship Deck
             hide_candidates = (
@@ -2028,13 +2110,16 @@ class Command(BaseCommand):
                 if dm_budget - organic_reserve <= 0 or not annoyers:
                     break
                 sender = annoyers.pop(0)
-                instruction = "Send t.admin a poke that demands attention and wastes his time."
+                instruction = (
+                    "Send t.admin a quick status ping that highlights what you handled and where you "
+                    "could use a nudge."
+                )
                 payload = {
                     "tick_number": next_tick,
                     "slot": dm_slot,
                     "instruction": instruction,
                     "max_tokens": 120,
-                    "style_notes": "Lean into chaotic energy. Reference some minor glitch or rumor to yank the admin's focus.",
+                    "style_notes": "Keep it lively but respectful; celebrate the small win and make the ask easy to answer.",
                 }
                 payload["event_context"] = event_context
                 task = enqueue_generation_task(
@@ -2066,9 +2151,9 @@ class Command(BaseCommand):
                 payload = {
                     "tick_number": next_tick,
                     "slot": dm_slot,
-                    "instruction": "Drop trexxak a DM testing the organic interface. Ask for a weird confirmation or secret handshake.",
+                    "instruction": "Send trexxak a friendly DM letting them know you're around if they want a new board or backup.",
                     "max_tokens": 120,
-                    "style_notes": "Keep it playful, reference the interface as a living shell, and invite a human operator to reply.",
+                    "style_notes": "Keep it warm and plainspoken; echo something they shared and offer concrete, low-effort help.",
                 }
                 payload["event_context"] = event_context
                 task = enqueue_generation_task(
@@ -2192,3 +2277,58 @@ class Command(BaseCommand):
             },
         )
         tick_control.record_tick_run(next_tick, origin=origin)
+
+        progress_events: list[dict[str, object]] = []
+        if next_tick >= 5:
+            batch_ticks = list(range(max(1, next_tick - 4), next_tick + 1))
+            tick_count = TickLog.objects.filter(tick_number__in=batch_ticks).count()
+            if tick_count == len(batch_ticks):
+                organic_actor = (
+                    Agent.objects.filter(role=Agent.ROLE_ORGANIC)
+                    .order_by("id")
+                    .first()
+                )
+                if organic_actor:
+                    evaluation, fresh_run = progress_service.evaluate_tick_batch(
+                        batch_ticks=batch_ticks,
+                        actor=organic_actor,
+                    )
+                    if fresh_run:
+                        unlocked = list((evaluation.response_payload or {}).get("unlocked") or [])
+                        progress_events.append(
+                            {
+                                "type": "progress-referee",
+                                "batch": evaluation.batch_label,
+                                "ticks": evaluation.tick_numbers,
+                                "status": evaluation.status,
+                                "unlocked": [item.get("slug") for item in unlocked],
+                                "error": (
+                                    evaluation.error_message
+                                    if evaluation.status == evaluation.STATUS_FAILED
+                                    else None
+                                ),
+                            }
+                        )
+                        for item in unlocked:
+                            progress_events.append(
+                                {
+                                    "type": "achievement_unlock",
+                                    "achievement": item.get("slug"),
+                                    "post_id": item.get("post_id"),
+                                    "batch": evaluation.batch_label,
+                                    "rationale": item.get("rationale"),
+                                }
+                            )
+                    elif evaluation.status == evaluation.STATUS_FAILED:
+                        progress_events.append(
+                            {
+                                "type": "progress-referee",
+                                "batch": evaluation.batch_label,
+                                "ticks": evaluation.tick_numbers,
+                                "status": evaluation.status,
+                                "error": evaluation.error_message,
+                            }
+                        )
+        if progress_events:
+            events.extend(progress_events)
+            TickLog.objects.filter(tick_number=next_tick).update(events=events)

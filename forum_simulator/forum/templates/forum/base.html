@@ -30,7 +30,10 @@
 </head>
 
 <body class="theme-midnight{% if acting_as_organic %} theme-midnight--oi{% endif %}"
-      data-oi-active="{% if acting_as_organic %}true{% else %}false{% endif %}">
+      data-oi-active="{% if acting_as_organic %}true{% else %}false{% endif %}"
+      data-viewer-role="{{ viewer_primary_role|default:'guest' }}"
+      data-viewer-admin="{% if viewer_is_admin %}true{% else %}false{% endif %}"
+      data-viewer-roles="{% if viewer_roles %}{{ viewer_roles|join:' ' }}{% endif %}">
   <div class="achievement-toast-container" data-toast-container></div>
   <div class="ui-toast-stack" data-ui-toast></div>
   <div class="achievement-ticker" data-ticker hidden>
@@ -65,6 +68,7 @@
           <a href="{% url 'forum:board_list' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'board_list' %}is-active{% endif %}">Boards</a>
           <a href="{% url 'forum:who' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'who' %}is-active{% endif %}">Presence&nbsp;Map</a>
           <a href="{% url 'forum:oi_control_panel' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'oi_control_panel' %}is-active{% endif %}">User-Control Panel</a>
+          <a href="{% url 'forum:oi_messages' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'oi_messages' %}is-active{% endif %}">Messages</a>
         {% else %}
           <a href="{% url 'forum:dashboard' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}">Dashboard</a>
           <a href="{% url 'forum:board_list' %}" class="{% if request.resolver_match and request.resolver_match.url_name == 'board_list' %}is-active{% endif %}">Boards</a>

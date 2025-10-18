@@ -163,10 +163,10 @@ class OrganicInterfaceTests(TestCase):
             html,
         )
 
-    def test_control_panel_compose_creates_dm(self) -> None:
+    def test_messages_view_compose_creates_dm(self) -> None:
         self._activate_organic()
 
-        compose_url = reverse("forum:oi_control_panel")
+        compose_url = reverse("forum:oi_messages")
         response = self.client.post(
             compose_url,
             {
@@ -178,7 +178,7 @@ class OrganicInterfaceTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(response["Location"].endswith("#messages:compose"))
+        self.assertTrue(response["Location"].endswith("#compose"))
 
         dm = PrivateMessage.objects.latest("id")
         self.assertEqual(dm.sender_id, self.organism.id)
@@ -186,7 +186,7 @@ class OrganicInterfaceTests(TestCase):
         self.assertTrue(dm.authored_by_operator)
         self.assertEqual(dm.content, "Operator ping delivered via control panel.")
 
-    def test_control_panel_compose_supports_multiple_recipients(self) -> None:
+    def test_messages_view_compose_supports_multiple_recipients(self) -> None:
         self._activate_organic()
 
         extra = Agent.objects.create(
@@ -195,7 +195,7 @@ class OrganicInterfaceTests(TestCase):
             role=Agent.ROLE_MEMBER,
         )
 
-        compose_url = reverse("forum:oi_control_panel")
+        compose_url = reverse("forum:oi_messages")
         message_body = "Coordinated briefing sent to allies."
         response = self.client.post(
             compose_url,
@@ -215,7 +215,7 @@ class OrganicInterfaceTests(TestCase):
             {self.member.name, extra.name},
         )
 
-    def test_control_panel_groups_messages_into_threads(self) -> None:
+    def test_messages_view_groups_messages_into_threads(self) -> None:
         self._activate_organic()
 
         partner_two = Agent.objects.create(
@@ -244,7 +244,7 @@ class OrganicInterfaceTests(TestCase):
         PrivateMessage.objects.filter(pk=first.pk).update(sent_at=now - timedelta(minutes=2))
         PrivateMessage.objects.filter(pk=second.pk).update(sent_at=now - timedelta(minutes=1))
 
-        response = self.client.get(reverse("forum:oi_control_panel"))
+        response = self.client.get(reverse("forum:oi_messages"))
         self.assertEqual(response.status_code, 200)
 
         inbox_threads = response.context["inbox_page_obj"].object_list

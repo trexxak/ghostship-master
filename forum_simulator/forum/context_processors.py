@@ -6,11 +6,46 @@ from django.conf import settings
 from django.http import HttpRequest
 from django.utils import timezone
 
-from forum.models import AgentGoal, Goal, TickLog
+from forum.models import Agent, AgentGoal, Goal, TickLog
 
 DEFAULT_MODE = "bulletin"
 DEFAULT_THEME = "midnight"
 STATIC_VERSION = getattr(settings, "STATIC_VERSION", timezone.now().strftime("%Y%m%d%H%M%S"))
+
+
+def _viewer_roles(request: HttpRequest) -> set[str]:
+    roles: set[str] = {"guest"}
+    if hasattr(request, "session"):
+        debug_role = str(request.session.get("oi_debug_role", "")).strip().lower()
+        if debug_role:
+            roles.add(debug_role)
+    agent = getattr(request, "oi_agent", None)
+    if agent and getattr(agent, "role", None):
+        roles.add(str(agent.role).strip().lower())
+        if agent.is_admin():
+            roles.add(Agent.ROLE_ADMIN)
+        if agent.is_moderator():
+            roles.add(Agent.ROLE_MODERATOR)
+    user = getattr(request, "user", None)
+    if user is not None and getattr(user, "is_authenticated", False):
+        if getattr(user, "is_superuser", False):
+            roles.add(Agent.ROLE_ADMIN)
+        if getattr(user, "is_staff", False):
+            roles.add(Agent.ROLE_MODERATOR)
+    return {str(role).strip().lower() for role in roles if role}
+
+
+def _primary_role(role_set: set[str]) -> str:
+    for candidate in (
+        Agent.ROLE_ADMIN,
+        Agent.ROLE_MODERATOR,
+        Agent.ROLE_MEMBER,
+        Agent.ROLE_BANNED,
+        Agent.ROLE_ORGANIC,
+    ):
+        if candidate in role_set:
+            return candidate
+    return "guest"
 
 
 def ui_mode(request: HttpRequest) -> dict[str, object]:
@@ -30,6 +65,9 @@ def ui_mode(request: HttpRequest) -> dict[str, object]:
         .first()
     )
 
+    roles = _viewer_roles(request)
+    primary_role = _primary_role(roles)
+
     return {
         "ui_mode": DEFAULT_MODE,
         "is_bulletin_mode": True,
@@ -39,6 +77,9 @@ def ui_mode(request: HttpRequest) -> dict[str, object]:
         "ui_theme_toggle": None,
         "latest_tick_number": latest_tick,
         "static_version": STATIC_VERSION,
+        "viewer_roles": sorted(roles),
+        "viewer_primary_role": primary_role,
+        "viewer_is_admin": Agent.ROLE_ADMIN in roles,
     }
 
 
@@ -71,6 +112,30 @@ def progress_notifications(request: HttpRequest) -> dict[str, object]:
                 continue
             if numeric:
                 metrics_delta[key] = numeric
+    queued_events_raw = session.pop("progress_event_queue", None)
+    manual_events: list[dict[str, object]] = []
+    if isinstance(queued_events_raw, list):
+        session.modified = True
+        for entry in queued_events_raw:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            slug = str(entry.get("slug") or "").strip() or "custom-event"
+            emoji = str(entry.get("emoji") or "").strip() or "🌟"
+            agent_name = str(entry.get("agent") or "").strip() or "trexxak"
+            unlocked_at = entry.get("unlocked_at")
+            if not unlocked_at:
+                unlocked_at = timezone.now()
+            manual_events.append(
+                {
+                    "slug": slug,
+                    "name": name or slug.replace("-", " ").title(),
+                    "emoji": emoji,
+                    "agent": agent_name,
+                    "unlocked_at": unlocked_at,
+                }
+            )
+
     toasts: list[dict[str, object]] = []
     if session_key:
         progression_toasts = (
@@ -97,6 +162,8 @@ def progress_notifications(request: HttpRequest) -> dict[str, object]:
                 }
             )
             toast_seen_ids.add(record.id)
+    if manual_events:
+        toasts = manual_events + toasts
     if toasts:
         session["progress_toasts_seen"] = list(toast_seen_ids)
         session.modified = True
@@ -128,6 +195,8 @@ def progress_notifications(request: HttpRequest) -> dict[str, object]:
             }
         )
         ticker_seen.add(record.id)
+    if manual_events:
+        ticker = (manual_events + ticker)[:12]
     if ticker:
         session["progress_ticker_seen"] = list(ticker_seen)
         session.modified = True
@@ -162,6 +231,8 @@ def progress_notifications(request: HttpRequest) -> dict[str, object]:
         broadcast_seen.add(record.id)
         if len(broadcasts) >= 3:
             break
+    if manual_events:
+        broadcasts = (manual_events[:3] + broadcasts)[:3]
     if broadcasts:
         session["progress_broadcast_seen"] = list(broadcast_seen)
         session.modified = True

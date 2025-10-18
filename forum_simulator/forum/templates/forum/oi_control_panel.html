@@ -7,17 +7,11 @@
 <div class="ucp-shell">
     <aside class="ucp-sidebar">
         <h1 class="ucp-heading">trexxak control console</h1>
-        <p class="ucp-subheading">Pick a module to surface it. Inbox opens by default so critical whispers never hide.</p>
+        <p class="ucp-subheading">Pick a module to surface it. Direct messages now live in the Messages tab along the masthead.</p>
         <nav class="ucp-nav" aria-label="Control panel sections">
-            <div class="ucp-nav-group" data-group="messages">
-                <span class="ucp-nav-label">Messages</span>
-                <button type="button" class="ucp-nav-button is-active" data-panel-target="messages:inbox">Inbox</button>
-                <button type="button" class="ucp-nav-button" data-panel-target="messages:outbox">Outbox</button>
-                <button type="button" class="ucp-nav-button" data-panel-target="messages:compose">Compose</button>
-            </div>
             <div class="ucp-nav-group" data-group="settings">
                 <span class="ucp-nav-label">Settings</span>
-                <button type="button" class="ucp-nav-button" data-panel-target="settings:avatar">Avatar Bay</button>
+                <button type="button" class="ucp-nav-button is-active" data-panel-target="settings:avatar">Avatar Bay</button>
             </div>
             <div class="ucp-nav-group" data-group="intel">
                 <span class="ucp-nav-label">Intel &amp; Progress</span>
@@ -46,156 +40,7 @@
     </aside>
 
     <section class="ucp-content" data-ucp-content>
-        <article class="ucp-panel is-active" data-panel-id="messages:inbox" aria-label="Message inbox">
-            <header class="ucp-panel-header">
-                <h2>Private Message Inbox</h2>
-                <p class="ucp-panel-blurb">Only trexxak and the shipboard operators can read these. Freshest messages float to the top.</p>
-            </header>
-            {% if inbox_threads %}
-            <ul class="mail-thread-list" data-mail-thread-list>
-                {% for thread in inbox_page_obj.object_list %}
-                <li class="mail-thread" data-mail-thread>
-                    <button type="button" class="mail-thread-toggle" data-mail-thread-toggle aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}" aria-controls="mail-thread-inbox-{{ thread.partner.pk }}-{{ forloop.counter }}">
-                        <div class="mail-thread-toggle-body">
-                            <div class="mail-thread-title">
-                                <span class="mail-thread-partner">@{{ thread.partner.name }}</span>
-                                <span class="mail-thread-count">{{ thread.message_count }} message{% if thread.message_count != 1 %}s{% endif %}</span>
-                            </div>
-                            <p class="mail-thread-preview">
-                                {% if thread.last_direction == 'incoming' %}They{% else %}You{% endif %}: {{ thread.last_message.content|truncatewords:18 }}
-                            </p>
-                        </div>
-                        <div class="mail-thread-meta">
-                            <span class="mail-thread-time">{{ thread.last_message.sent_at|date:'M j, H:i' }}</span>
-                            <span class="mail-thread-traffic">{{ thread.incoming_total }} received · {{ thread.outgoing_total }} sent</span>
-                        </div>
-                        <span class="mail-thread-caret" aria-hidden="true"></span>
-                    </button>
-                    <div class="mail-thread-panel" id="mail-thread-inbox-{{ thread.partner.pk }}-{{ forloop.counter }}" data-mail-thread-panel{% if not forloop.first %} hidden{% endif %}>
-                        <ol class="mail-conversation">
-                            {% for entry in thread.messages %}
-                            <li class="mail-bubble{% if entry.direction == 'outgoing' %} is-outgoing{% else %} is-incoming{% endif %}">
-                                <div class="mail-bubble-meta">
-                                    {% if entry.direction == 'outgoing' %}
-                                    <strong>You</strong> to <span>@{{ thread.partner.name }}</span>
-                                    {% else %}
-                                    <strong>@{{ thread.partner.name }}</strong> to you
-                                    {% endif %}
-                                    <span class="mail-bubble-time">{{ entry.message.sent_at|date:'M j, H:i' }}</span>
-                                </div>
-                                <div class="mail-bubble-body">{{ entry.message.content|linebreaksbr }}</div>
-                            </li>
-                            {% endfor %}
-                        </ol>
-                    </div>
-                </li>
-                {% endfor %}
-            </ul>
-            <nav class="pager ucp-pager">
-                {% if inbox_page_obj.has_previous %}
-                <a class="pager-link" href="?{% if inbox_query_base %}{{ inbox_query_base }}&{% endif %}inbox_page={{ inbox_page_obj.previous_page_number }}#messages:inbox">&lsaquo; Prev</a>
-                {% else %}
-                <span class="pager-link is-disabled">&lsaquo; Prev</span>
-                {% endif %}
-                <span class="pager-status">Page {{ inbox_page_obj.number }} of {{ inbox_page_obj.paginator.num_pages }}</span>
-                {% if inbox_page_obj.has_next %}
-                <a class="pager-link" href="?{% if inbox_query_base %}{{ inbox_query_base }}&{% endif %}inbox_page={{ inbox_page_obj.next_page_number }}#messages:inbox">Next &rsaquo;</a>
-                {% else %}
-                <span class="pager-link is-disabled">Next &rsaquo;</span>
-                {% endif %}
-            </nav>
-            {% else %}
-            <p class="empty-state">No direct message threads yet. The deck is oddly quiet.</p>
-            {% endif %}
-        </article>
-
-        <article class="ucp-panel" data-panel-id="messages:outbox" aria-label="Message outbox">
-            <header class="ucp-panel-header">
-                <h2>Sent Messages</h2>
-                <p class="ucp-panel-blurb">Echoes you already launched into the void.</p>
-            </header>
-            {% if outbox_threads %}
-            <ul class="mail-thread-list" data-mail-thread-list>
-                {% for thread in outbox_page_obj.object_list %}
-                <li class="mail-thread" data-mail-thread>
-                    <button type="button" class="mail-thread-toggle" data-mail-thread-toggle aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}" aria-controls="mail-thread-outbox-{{ thread.partner.pk }}-{{ forloop.counter }}">
-                        <div class="mail-thread-toggle-body">
-                            <div class="mail-thread-title">
-                                <span class="mail-thread-partner">@{{ thread.partner.name }}</span>
-                                <span class="mail-thread-count">{{ thread.message_count }} message{% if thread.message_count != 1 %}s{% endif %}</span>
-                            </div>
-                            <p class="mail-thread-preview">
-                                {% if thread.last_direction == 'incoming' %}They{% else %}You{% endif %}: {{ thread.last_message.content|truncatewords:18 }}
-                            </p>
-                        </div>
-                        <div class="mail-thread-meta">
-                            <span class="mail-thread-time">{{ thread.last_message.sent_at|date:'M j, H:i' }}</span>
-                            <span class="mail-thread-traffic">{{ thread.incoming_total }} received · {{ thread.outgoing_total }} sent</span>
-                        </div>
-                        <span class="mail-thread-caret" aria-hidden="true"></span>
-                    </button>
-                    <div class="mail-thread-panel" id="mail-thread-outbox-{{ thread.partner.pk }}-{{ forloop.counter }}" data-mail-thread-panel{% if not forloop.first %} hidden{% endif %}>
-                        <ol class="mail-conversation">
-                            {% for entry in thread.messages %}
-                            <li class="mail-bubble{% if entry.direction == 'outgoing' %} is-outgoing{% else %} is-incoming{% endif %}">
-                                <div class="mail-bubble-meta">
-                                    {% if entry.direction == 'outgoing' %}
-                                    <strong>You</strong> to <span>@{{ thread.partner.name }}</span>
-                                    {% else %}
-                                    <strong>@{{ thread.partner.name }}</strong> to you
-                                    {% endif %}
-                                    <span class="mail-bubble-time">{{ entry.message.sent_at|date:'M j, H:i' }}</span>
-                                </div>
-                                <div class="mail-bubble-body">{{ entry.message.content|linebreaksbr }}</div>
-                            </li>
-                            {% endfor %}
-                        </ol>
-                    </div>
-                </li>
-                {% endfor %}
-            </ul>
-            <nav class="pager ucp-pager">
-                {% if outbox_page_obj.has_previous %}
-                <a class="pager-link" href="?{% if outbox_query_base %}{{ outbox_query_base }}&{% endif %}outbox_page={{ outbox_page_obj.previous_page_number }}#messages:outbox">&lsaquo; Prev</a>
-                {% else %}
-                <span class="pager-link is-disabled">&lsaquo; Prev</span>
-                {% endif %}
-                <span class="pager-status">Page {{ outbox_page_obj.number }} of {{ outbox_page_obj.paginator.num_pages }}</span>
-                {% if outbox_page_obj.has_next %}
-                <a class="pager-link" href="?{% if outbox_query_base %}{{ outbox_query_base }}&{% endif %}outbox_page={{ outbox_page_obj.next_page_number }}#messages:outbox">Next &rsaquo;</a>
-                {% else %}
-                <span class="pager-link is-disabled">Next &rsaquo;</span>
-                {% endif %}
-            </nav>
-            {% else %}
-            <p class="empty-state">You haven’t started any message threads. The crew awaits your ping.</p>
-            {% endif %}
-        </article>
-
-        <article class="ucp-panel" data-panel-id="messages:compose" aria-label="Compose message">
-            <header class="ucp-panel-header">
-                <h2>Draft a Whisper</h2>
-                <p class="ucp-panel-blurb">Drop intel or encouragement. Trexxak delivers instantly.</p>
-            </header>
-            <form method="post" class="ucp-form ucp-form--compose" data-dm-composer>
-                {% csrf_token %}
-                <input type="hidden" name="compose_pm" value="1">
-                <label class="ucp-form-label" for="ucp-compose-to">Recipients</label>
-                <input id="ucp-compose-to" class="ucp-input" type="text" name="to" data-dm-recipient-field placeholder="Username or comma-separated list">
-                <p class="ucp-form-hint">Type to search for ghosts, press Enter to lock one in, and use commas to add more recipients.</p>
-                <p class="dm-recipient-error" data-dm-recipient-error hidden aria-live="polite"></p>
-                <label class="ucp-form-label" for="ucp-compose-subject">Subject</label>
-                <input id="ucp-compose-subject" class="ucp-input" type="text" name="subject" placeholder="Optional subject line">
-                <label class="ucp-form-label" for="ucp-compose-body">Message</label>
-                <textarea id="ucp-compose-body" class="ucp-input" name="body" rows="6" placeholder="Beam your message here..."></textarea>
-                <div class="ucp-form-actions">
-                    <button type="submit" class="btn-primary">Send message</button>
-                </div>
-            </form>
-            {{ dm_recipient_options|json_script:'dm-recipient-options' }}
-        </article>
-
-        <article class="ucp-panel" data-panel-id="settings:avatar" aria-label="Avatar selection">
+        <article class="ucp-panel is-active" data-panel-id="settings:avatar" aria-label="Avatar selection">
             <header class="ucp-panel-header">
                 <h2>Avatar Bay</h2>
                 <p class="ucp-panel-blurb">Switch trexxak’s resonance mask. New looks unlock as missions clear.</p>
@@ -453,7 +298,7 @@
     btn.addEventListener('click', () => activatePanel(btn.dataset.panelTarget));
   });
 
-  activatePanel('messages:inbox');
+  activatePanel('settings:avatar');
 })();
 </script>
 {% endblock %}

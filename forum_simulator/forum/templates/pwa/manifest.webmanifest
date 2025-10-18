@@ -29,7 +29,7 @@
       "name": "Open Inbox",
       "short_name": "Inbox",
       "description": "Jump straight into trexxak's DM inbox.",
-      "url": "/oi/panel/#messages:inbox",
+      "url": "/oi/messages/#inbox",
       "icons": [
         {
           "src": "https://imustadmitilove.trexxak.com/boden/images/icon-192x192.png",

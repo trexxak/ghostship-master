@@ -212,6 +212,9 @@ const Soundboard = {
       return;
     }
     toasts.slice(0, 3).forEach((toast, index) => {
+      if (toast && toast.emoji) {
+        addEmojiToComposers(toast.emoji, { silent: true });
+      }
       const node = document.createElement("article");
       node.className = "achievement-toast";
       node.setAttribute("role", "status");
@@ -733,7 +736,12 @@ const Soundboard = {
           return;
         }
         const added = addEmojiToComposers(symbol, { silent: true });
-        showToast(added ? `${symbol} pinned to the dock.` : `${symbol} is already in the dock.`, added ? "success" : "info");
+        showToast(
+          added
+            ? `${symbol} auto-docked for you. Check the composer!`
+            : `${symbol} is already waiting in the dock.`,
+          added ? "success" : "info",
+        );
       });
     });
   }
@@ -902,6 +910,13 @@ const Soundboard = {
         hidden.value = selected.map((option) => option.name).join(", ");
       };
 
+      const clearRecipients = () => {
+        selected.splice(0, selected.length);
+        selectedIds.clear();
+        chipContainer.innerHTML = "";
+        updateHidden();
+      };
+
       const removeRecipient = (id) => {
         const index = selected.findIndex((option) => option.id === id);
         if (index === -1) {
@@ -948,6 +963,44 @@ const Soundboard = {
           clearError();
         }
         return true;
+      };
+
+      const findOptionByHandle = (handle) => {
+        if (!handle) {
+          return null;
+        }
+        return lookup.get(normalizeHandle(handle));
+      };
+
+      const setRecipients = (handles) => {
+        if (!Array.isArray(handles) || !handles.length) {
+          return false;
+        }
+        const optionsToApply = handles
+          .map((handle) => findOptionByHandle(handle))
+          .filter((option) => option && Number.isFinite(option.id));
+        if (!optionsToApply.length) {
+          return false;
+        }
+        clearRecipients();
+        optionsToApply.forEach((option) => {
+          addRecipient(option, { silent: true });
+        });
+        updateHidden();
+        clearError();
+        return true;
+      };
+
+      const addRecipientByHandle = (handle) => {
+        const option = findOptionByHandle(handle);
+        if (!option) {
+          return false;
+        }
+        const added = addRecipient(option);
+        if (added) {
+          updateHidden();
+        }
+        return added;
       };
 
       const setActiveIndex = (index) => {
@@ -1150,6 +1203,28 @@ const Soundboard = {
         }
       });
 
+      form.addEventListener("dm:setRecipients", (event) => {
+        const detail = event.detail || {};
+        if (detail && Array.isArray(detail.handles)) {
+          setRecipients(detail.handles);
+        }
+      });
+
+      form.dmComposerApi = {
+        setRecipients,
+        addRecipient: addRecipientByHandle,
+        clearRecipients,
+        focusInput: () => input.focus(),
+        focusBody: () => {
+          const bodyField = form.querySelector("[data-dm-body]");
+          if (bodyField) {
+            bodyField.focus();
+          } else {
+            input.focus();
+          }
+        },
+      };
+
       if (initialValue) {
         const bootstrapSegments = initialValue.split(",");
         bootstrapSegments.forEach((segment) => {
@@ -1160,6 +1235,143 @@ const Soundboard = {
           }
         });
         updateHidden();
+      }
+    });
+  }
+
+  function initMailFolders() {
+    const container = document.querySelector(".mail-room");
+    if (!container) {
+      return;
+    }
+    const toggles = Array.from(container.querySelectorAll("[data-mail-folder-toggle]"));
+    if (!toggles.length) {
+      return;
+    }
+    const panels = new Map();
+    container.querySelectorAll("[data-mail-folder]").forEach((panel) => {
+      const key = panel.dataset.mailFolder;
+      if (key) {
+        panels.set(key, panel);
+      }
+    });
+    if (!panels.size) {
+      return;
+    }
+
+    let activeFolder = null;
+
+    const setActive = (folder, { updateHash = true } = {}) => {
+      if (!folder || !panels.has(folder)) {
+        return;
+      }
+      if (activeFolder === folder) {
+        if (updateHash) {
+          const newHash = `#${folder}`;
+          if (window.location.hash !== newHash) {
+            if (window.history && typeof window.history.replaceState === "function") {
+              window.history.replaceState(null, document.title, newHash);
+            } else {
+              window.location.hash = newHash;
+            }
+          }
+        }
+        return;
+      }
+      activeFolder = folder;
+      panels.forEach((panel, key) => {
+        const isActive = key === folder;
+        panel.classList.toggle("is-active", isActive);
+        panel.setAttribute("aria-hidden", isActive ? "false" : "true");
+      });
+      toggles.forEach((toggle) => {
+        const target = toggle.dataset.mailFolderToggle;
+        const isActive = target === folder;
+        toggle.classList.toggle("is-active", isActive);
+        toggle.setAttribute("aria-pressed", isActive ? "true" : "false");
+        if (isActive) {
+          toggle.setAttribute("aria-current", "page");
+        } else {
+          toggle.removeAttribute("aria-current");
+        }
+      });
+      if (updateHash) {
+        const newHash = `#${folder}`;
+        if (window.location.hash !== newHash) {
+          if (window.history && typeof window.history.replaceState === "function") {
+            window.history.replaceState(null, document.title, newHash);
+          } else {
+            window.location.hash = newHash;
+          }
+        }
+      }
+    };
+
+    toggles.forEach((toggle) => {
+      toggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        const target = toggle.dataset.mailFolderToggle;
+        if (target) {
+          setActive(target);
+        }
+      });
+    });
+
+    const defaultToggle = toggles.find((toggle) => toggle.classList.contains("is-active"));
+    if (defaultToggle && defaultToggle.dataset.mailFolderToggle) {
+      setActive(defaultToggle.dataset.mailFolderToggle, { updateHash: false });
+    } else if (toggles[0] && toggles[0].dataset.mailFolderToggle) {
+      setActive(toggles[0].dataset.mailFolderToggle, { updateHash: false });
+    }
+
+    const applyHash = () => {
+      const rawHash = (window.location.hash || "").replace(/^#/, "").trim();
+      if (rawHash && panels.has(rawHash) && rawHash !== activeFolder) {
+        setActive(rawHash, { updateHash: false });
+      }
+    };
+
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+  }
+
+  function initMailReplyTriggers() {
+    document.addEventListener("click", (event) => {
+      const trigger = event.target.closest("[data-mail-reply]");
+      if (!trigger) {
+        return;
+      }
+      const handle = trigger.dataset.mailReply;
+      if (!handle) {
+        return;
+      }
+      const composer = document.querySelector("[data-dm-composer]");
+      if (!composer) {
+        return;
+      }
+      event.preventDefault();
+
+      const composeShell = document.querySelector("[data-mail-compose]");
+      if (composeShell && composeShell.tagName === "DETAILS") {
+        composeShell.open = true;
+        if (typeof composeShell.scrollIntoView === "function") {
+          composeShell.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+
+      if (composer.dmComposerApi && typeof composer.dmComposerApi.setRecipients === "function") {
+        composer.dmComposerApi.setRecipients([handle]);
+      } else {
+        composer.dispatchEvent(new CustomEvent("dm:setRecipients", { detail: { handles: [handle] } }));
+      }
+
+      if (composer.dmComposerApi && typeof composer.dmComposerApi.focusBody === "function") {
+        composer.dmComposerApi.focusBody();
+      } else {
+        const bodyField = composer.querySelector("[data-dm-body]") || composer.querySelector("textarea[name='body']");
+        if (bodyField) {
+          bodyField.focus();
+        }
       }
     });
   }
@@ -1397,7 +1609,8 @@ const Soundboard = {
     }
 
     const unlockedEmoji = collectUnlockedEmoji();
-    if (!unlockedEmoji.length) {
+    const viewerIsAdmin = document.body && document.body.dataset.viewerAdmin === "true";
+    if (!unlockedEmoji.length && viewerIsAdmin) {
       unlockedEmoji.push("💬");
     }
     const cssEscape = (value) => {
@@ -1684,6 +1897,7 @@ const Soundboard = {
     setupThreadAutoUpdates();
     setupMentionHighlighting();
     initNotifications();
+    initComposers();
     renderAchievementToasts();
     renderAchievementTicker();
     renderAchievementBroadcasts();
@@ -1695,10 +1909,11 @@ const Soundboard = {
     initPaginationControls();
     initScrollLinks();
     initModals();
-    initComposers();
     initEmojiPins();
+    initMailFolders();
     initMailThreads();
     initDmComposer();
+    initMailReplyTriggers();
     initSelectSearch();
   });
 })();

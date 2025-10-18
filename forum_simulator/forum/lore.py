@@ -10,7 +10,7 @@ from forum.services import sim_config
 from forum.services.avatar_factory import ensure_agent_avatar
 from .models import Agent, Board, Thread, Post, LoreEvent
 
-tick_scale = 1.0  # Scales time-based effects (e.g. post decay, mission progress) per tick
+tick_scale = 0.5  # Scales time-based effects (e.g. post decay, mission progress) per tick
 # ==== Canon: seed state ====
 # - Only one board at start: "News + Meta"
 # - Only one thread at start: "How to operate..."

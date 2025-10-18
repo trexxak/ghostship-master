@@ -89,6 +89,24 @@ class ProgressNotificationTests(TestCase):
         repeat = progress_notifications(request)
         self.assertEqual(repeat["progress_metrics_delta"], {})
 
+    def test_manual_progress_event_consumed_from_session(self) -> None:
+        request = self._request()
+        request.session["progress_event_queue"] = [
+            {
+                "slug": "role-change-admin",
+                "name": "t.admin made you Admin!",
+                "emoji": "👑",
+                "agent": "t.admin",
+            }
+        ]
+        request.session.modified = True
+        context = progress_notifications(request)
+        self.assertTrue(context["progress_toasts"])
+        self.assertEqual(context["progress_toasts"][0]["slug"], "role-change-admin")
+        self.assertIn("role-change-admin", [item["slug"] for item in context["progress_ticker"]])
+        self.assertIn("role-change-admin", [item["slug"] for item in context["progress_broadcasts"]])
+        self.assertNotIn("progress_event_queue", request.session)
+
     def test_broadcasts_include_recent_unlocks(self) -> None:
         request = self._request()
         goal = Goal.objects.get(slug="progress-spark")

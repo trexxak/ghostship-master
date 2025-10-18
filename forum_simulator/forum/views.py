@@ -182,10 +182,10 @@ def compose_dm(request, recipient_id):
 @require_http_methods(["GET", "POST"])
 def oi_control_panel(request: HttpRequest) -> HttpResponse:
     """
-    Render the organic user's control panel. This dashboard exposes a high‑level
-    view of the organic interface's personal communications (inbox/outbox),
-    unlocked achievements, avatar customization, and placeholder areas for
-    settings and tutorials. Avatar changes are processed via POST.
+    Render the organic user's control panel. This dashboard exposes a high-level
+    view of trexxak's unlocked achievements, avatar customization, and
+    moderation/admin utilities. Direct messages now live in the dedicated
+    Messages view. Avatar changes are processed via POST.
     """
     organism = _organic_agent()
     if organism is None:
@@ -199,7 +199,130 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
         return redirect("forum:mission_board")
 
     avatar_options = _available_avatars(organism)
-    compose_redirect = f"{reverse('forum:oi_control_panel')}#messages:compose"
+    allowed_avatar_values: set[str] = {
+        str(entry.get("value"))
+        for entry in avatar_options
+        if entry.get("value")
+    }
+    default_avatar_value = next(
+        (
+            entry.get("value")
+            for entry in avatar_options
+            if entry.get("slot") == "default"
+        ),
+        unlockable_service.default_avatar_option().get("value") or "",
+    )
+    session_avatar_value = (
+        str(request.session.get("oi_avatar_override", "")).strip()
+        if hasattr(request, "session")
+        else ""
+    )
+
+    # Process avatar selection via POST. Store preference per session rather than
+    # mutating the trexxak agent record.
+    if request.method == "POST" and request.POST.get("update_avatar"):
+        selected_slug = (request.POST.get("avatar_slug") or "").strip()
+        if selected_slug:
+            if selected_slug in allowed_avatar_values:
+                if hasattr(request, "session"):
+                    request.session["oi_avatar_override"] = selected_slug
+                    request.session.modified = True
+                messages.success(request, "Avatar updated for this session.")
+            else:
+                messages.error(request, "Invalid avatar selection.")
+        else:
+            if hasattr(request, "session"):
+                request.session.pop("oi_avatar_override", None)
+                request.session.modified = True
+            messages.success(request, "Avatar reset to the default baseline.")
+        return redirect("forum:oi_control_panel")
+
+    selected_avatar_value = ""
+    if session_avatar_value in allowed_avatar_values:
+        selected_avatar_value = session_avatar_value
+    elif default_avatar_value and default_avatar_value in allowed_avatar_values:
+        selected_avatar_value = default_avatar_value
+    elif organism.avatar_slug and str(organism.avatar_slug) in allowed_avatar_values:
+        selected_avatar_value = str(organism.avatar_slug)
+    elif avatar_options:
+        selected_avatar_value = str(avatar_options[0].get("value") or "")
+    if selected_avatar_value:
+        organism.avatar_slug = selected_avatar_value
+
+    # Fetch all personal goal states for display in the achievements section.
+    agent_goals = list(
+        AgentGoal.objects.filter(agent=organism)
+        .select_related("goal", "source_post")
+        .order_by("goal__priority", "goal__name")
+    )
+
+    viewer_roles = _viewer_roles(request)
+    can_moderate = _viewer_can_moderate(viewer_roles)
+    is_admin = organism.is_admin() if hasattr(organism, "is_admin") else False
+
+    moderator_ticket_queue: list[ModerationTicket] = []
+    recent_reports: list[ModerationTicket] = []
+    if can_moderate:
+        active_statuses = [
+            ModerationTicket.STATUS_OPEN,
+            ModerationTicket.STATUS_TRIAGED,
+            ModerationTicket.STATUS_IN_PROGRESS,
+        ]
+        moderator_ticket_queue = list(
+            ModerationTicket.objects.filter(status__in=active_statuses)
+            .select_related("thread", "post", "reporter", "assignee")
+            .order_by("-priority", "opened_at")[:10]
+        )
+        recent_reports = [
+            ticket
+            for ticket in moderator_ticket_queue
+            if ticket.source == ModerationTicket.SOURCE_REPORT
+        ][:6]
+
+    admin_metrics = {}
+    admin_recent_usage: list[OpenRouterUsage] = []
+    recent_goal_evaluations: list[GoalEvaluation] = []
+    if is_admin:
+        admin_metrics = {
+            "agents": Agent.objects.count(),
+            "threads": Thread.objects.count(),
+            "posts": Post.objects.count(),
+            "missions": Goal.objects.filter(goal_type=Goal.TYPE_MISSION).count(),
+        }
+        admin_recent_usage = list(OpenRouterUsage.objects.order_by("-day")[:8])
+        recent_goal_evaluations = list(GoalEvaluation.objects.order_by("-created_at")[:5])
+
+    context = {
+        "organism": organism,
+        "agent_goals": agent_goals,
+        "available_avatars": avatar_options,
+        "selected_avatar": selected_avatar_value,
+        "debug_role": (request.session.get("oi_debug_role") or ""),
+        "can_moderate": can_moderate,
+        "is_admin": is_admin,
+        "moderator_ticket_queue": moderator_ticket_queue,
+        "moderator_recent_reports": recent_reports,
+        "ticket_action_form": ModerationTicketActionForm() if can_moderate else None,
+        "admin_metrics": admin_metrics,
+        "admin_recent_usage": admin_recent_usage,
+        "recent_goal_evaluations": recent_goal_evaluations,
+    }
+    return render(request, "forum/oi_control_panel.html", context)
+
+
+def oi_messages(request: HttpRequest) -> HttpResponse:
+    """Render the combined inbox/outbox view with composer tools for trexxak."""
+    organism = _organic_agent()
+    if organism is None:
+        raise Http404("trexxak interface unavailable")
+    if not getattr(request, "oi_active", False):
+        messages.error(
+            request,
+            "Flip the organic switch on before accessing messages.",
+        )
+        return redirect("forum:mission_board")
+
+    compose_redirect = f"{reverse('forum:oi_messages')}#compose"
 
     if request.method == "POST" and request.POST.get("compose_pm"):
         raw_recipients = (request.POST.get("to") or "").strip()
@@ -235,7 +358,7 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
             recipients.append(agent)
             seen_recipient_ids.add(agent.pk)
 
-        metadata = {"origin": "control_panel"}
+        metadata = {"origin": "messages"}
         if subject:
             metadata["subject"] = subject
 
@@ -251,58 +374,6 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
         messages.success(request, f"Message dispatched to {recipient_names}.")
         return redirect(compose_redirect)
 
-    allowed_avatar_values: set[str] = {
-        str(entry.get("value"))
-        for entry in avatar_options
-        if entry.get("value")
-    }
-    default_avatar_value = next(
-        (
-            entry.get("value")
-            for entry in avatar_options
-            if entry.get("slot") == "default"
-        ),
-        unlockable_service.default_avatar_option().get("value") or "",
-    )
-    session_avatar_value = (
-        str(request.session.get("oi_avatar_override", "")).strip()
-        if hasattr(request, "session")
-        else ""
-    )
-
-    # Process avatar selection via POST. Store preference per session rather than
-    # mutating the trexxak agent record.
-    if request.method == "POST":
-        selected_slug = (request.POST.get("avatar_slug") or "").strip()
-        if selected_slug:
-            if selected_slug in allowed_avatar_values:
-                if hasattr(request, "session"):
-                    request.session["oi_avatar_override"] = selected_slug
-                    request.session.modified = True
-                messages.success(request, "Avatar updated for this session.")
-            else:
-                messages.error(request, "Invalid avatar selection.")
-        else:
-            if hasattr(request, "session"):
-                request.session.pop("oi_avatar_override", None)
-                request.session.modified = True
-            messages.success(request, "Avatar reset to the default baseline.")
-        return redirect("forum:oi_control_panel")
-
-    selected_avatar_value = ""
-    if session_avatar_value in allowed_avatar_values:
-        selected_avatar_value = session_avatar_value
-    elif default_avatar_value and default_avatar_value in allowed_avatar_values:
-        selected_avatar_value = default_avatar_value
-    elif organism.avatar_slug and str(organism.avatar_slug) in allowed_avatar_values:
-        selected_avatar_value = str(organism.avatar_slug)
-    elif avatar_options:
-        selected_avatar_value = str(avatar_options[0].get("value") or "")
-    if selected_avatar_value:
-        organism.avatar_slug = selected_avatar_value
-
-    # Collect direct message history and group it into conversation threads so the
-    # inbox/outbox views can display the surrounding context for each partner.
     dm_queryset = (
         PrivateMessage.objects.filter(Q(sender=organism) | Q(recipient=organism))
         .select_related("sender", "recipient")
@@ -376,48 +447,9 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
     except EmptyPage:
         outbox_page_obj = outbox_paginator.page(outbox_paginator.num_pages)
 
-    # Fetch all personal goal states for display in the achievements section.
-    agent_goals = list(
-        AgentGoal.objects.filter(agent=organism)
-        .select_related("goal", "source_post")
-        .order_by("goal__priority", "goal__name")
-    )
-
-    viewer_roles = _viewer_roles(request)
-    can_moderate = _viewer_can_moderate(viewer_roles)
-    is_admin = organism.is_admin() if hasattr(organism, "is_admin") else False
-
-    moderator_ticket_queue: list[ModerationTicket] = []
-    recent_reports: list[ModerationTicket] = []
-    if can_moderate:
-        active_statuses = [
-            ModerationTicket.STATUS_OPEN,
-            ModerationTicket.STATUS_TRIAGED,
-            ModerationTicket.STATUS_IN_PROGRESS,
-        ]
-        moderator_ticket_queue = list(
-            ModerationTicket.objects.filter(status__in=active_statuses)
-            .select_related("thread", "post", "reporter", "assignee")
-            .order_by("-priority", "opened_at")[:10]
-        )
-        recent_reports = [
-            ticket
-            for ticket in moderator_ticket_queue
-            if ticket.source == ModerationTicket.SOURCE_REPORT
-        ][:6]
-
-    admin_metrics = {}
-    admin_recent_usage: list[OpenRouterUsage] = []
-    recent_goal_evaluations: list[GoalEvaluation] = []
-    if is_admin:
-        admin_metrics = {
-            "agents": Agent.objects.count(),
-            "threads": Thread.objects.count(),
-            "posts": Post.objects.count(),
-            "missions": Goal.objects.filter(goal_type=Goal.TYPE_MISSION).count(),
-        }
-        admin_recent_usage = list(OpenRouterUsage.objects.order_by("-day")[:8])
-        recent_goal_evaluations = list(GoalEvaluation.objects.order_by("-created_at")[:5])
+    active_folder = request.GET.get("folder", "").strip().lower()
+    if active_folder not in {"inbox", "outbox"}:
+        active_folder = "outbox" if request.GET.get("outbox_page") else "inbox"
 
     def _query_without(param: str) -> str:
         params = request.GET.copy()
@@ -427,8 +459,6 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
 
     context = {
         "organism": organism,
-        "inbox": inbox_page_obj.object_list,
-        "outbox": outbox_page_obj.object_list,
         "inbox_threads": inbox_page_obj.object_list,
         "outbox_threads": outbox_page_obj.object_list,
         "inbox_page_obj": inbox_page_obj,
@@ -436,6 +466,7 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
         "inbox_paginator": inbox_paginator,
         "outbox_paginator": outbox_paginator,
         "dm_thread_count": len(dm_threads),
+        "active_folder": active_folder,
         "dm_recipient_options": [
             {
                 "id": agent.id,
@@ -445,22 +476,10 @@ def oi_control_panel(request: HttpRequest) -> HttpResponse:
             }
             for agent in Agent.objects.exclude(role=Agent.ROLE_ORGANIC).order_by("name")
         ],
-        "agent_goals": agent_goals,
-        "available_avatars": avatar_options,
-        "selected_avatar": selected_avatar_value,
-        "debug_role": (request.session.get("oi_debug_role") or ""),
-        "can_moderate": can_moderate,
-        "is_admin": is_admin,
-        "moderator_ticket_queue": moderator_ticket_queue,
-        "moderator_recent_reports": recent_reports,
-        "ticket_action_form": ModerationTicketActionForm() if can_moderate else None,
-        "admin_metrics": admin_metrics,
-        "admin_recent_usage": admin_recent_usage,
-        "recent_goal_evaluations": recent_goal_evaluations,
         "inbox_query_base": _query_without("inbox_page"),
         "outbox_query_base": _query_without("outbox_page"),
     }
-    return render(request, "forum/oi_control_panel.html", context)
+    return render(request, "forum/oi_messages.html", context)
 
 
 @require_http_methods(["POST"])
@@ -469,6 +488,7 @@ def oi_set_debug_role(request: HttpRequest) -> HttpResponse:
     if not getattr(request, "oi_active", False):
         messages.error(request, "Activate trexxak mode before adjusting debug roles.")
         return redirect(next_url)
+    previous_role = str(getattr(request, "oi_effective_role", "") or "").strip().lower()
     role = (request.POST.get("role") or "").strip().lower()
     allowed = {"", Agent.ROLE_MEMBER, Agent.ROLE_MODERATOR, Agent.ROLE_ADMIN, Agent.ROLE_BANNED}
     if role not in allowed:
@@ -481,6 +501,14 @@ def oi_set_debug_role(request: HttpRequest) -> HttpResponse:
         request.session["oi_debug_role"] = role
         messages.success(request, f"trexxak debug role set to {role}.")
     request.session.modified = True
+    agent = getattr(request, "oi_agent", None)
+    if role:
+        new_effective_role = role
+    else:
+        new_effective_role = agent.role if agent else ""
+    normalized_new_role = str(new_effective_role or "").strip().lower()
+    if normalized_new_role != previous_role and normalized_new_role:
+        _queue_role_change_event(request, normalized_new_role)
     return redirect(next_url)
 
 
@@ -594,6 +622,51 @@ def _queue_metrics_delta(request: HttpRequest, **delta: int) -> None:
     if changed:
         session["progress_metrics_delta"] = stored
         session.modified = True
+
+
+ROLE_EVENT_EMOJI = {
+    Agent.ROLE_ADMIN: "👑",
+    Agent.ROLE_MODERATOR: "🛡️",
+    Agent.ROLE_MEMBER: "🪪",
+    Agent.ROLE_BANNED: "🚫",
+    Agent.ROLE_ORGANIC: "🌱",
+}
+
+
+def _queue_role_change_event(request: HttpRequest, new_role: str) -> None:
+    if not hasattr(request, "session"):
+        return
+    session = request.session
+    if session.session_key is None:
+        session.save()
+    normalized = str(new_role or "").strip().lower()
+    if not normalized:
+        return
+    if normalized not in {
+        Agent.ROLE_ADMIN,
+        Agent.ROLE_MODERATOR,
+        Agent.ROLE_MEMBER,
+        Agent.ROLE_BANNED,
+        Agent.ROLE_ORGANIC,
+    }:
+        return
+    pretty = normalized.replace("-", " ").title()
+    message = f"t.admin made you {pretty}!"
+    emoji = ROLE_EVENT_EMOJI.get(normalized, "🌟")
+    queued = session.get("progress_event_queue")
+    if not isinstance(queued, list):
+        queued = []
+    queued.append(
+        {
+            "slug": f"role-change-{normalized}",
+            "name": message,
+            "emoji": emoji,
+            "agent": "t.admin",
+            "unlocked_at": timezone.now(),
+        }
+    )
+    session["progress_event_queue"] = queued
+    session.modified = True
 
 
 def _active_organic_agent(request: HttpRequest) -> Agent:
